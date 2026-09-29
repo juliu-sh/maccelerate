@@ -16,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var spaceChangeObserver: Any?
   private var appActivationObserver: Any?
   private var appLaunchObserver: Any?
+  private var inputMonitor: Timer?
+  private var inputActive = false
 
   func applicationWillFinishLaunching(_ notification: Notification) {
     Self.refreshDockIcon()
@@ -52,11 +54,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     ensureAccessibilityPermission()
 
-    if !iss_init() {
-      print("Failed to initialize ISS event tap")
-      retryIssInit()
-    }
-
     if UserDefaults.standard.bool(forKey: "swipeOverride") {
       iss_set_swipe_override(true)
     }
@@ -73,10 +70,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     observeAppActivation()
     observeAppLaunches()
     refreshSpaceInfo()
+    reconcileInputConnection()
+    let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+      Task { @MainActor [weak self] in self?.reconcileInputConnection() }
+    }
+    inputMonitor = timer
+    RunLoop.main.add(timer, forMode: .common)
 
   }
 
   func applicationWillTerminate(_ notification: Notification) {
+    inputMonitor?.invalidate()
+    inputMonitor = nil
+    HotKeyManager.shared.unregisterAll()
     iss_destroy()
     stopObservingSpaceChanges()
     stopObservingAppActivation()
@@ -93,11 +99,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
-  private func retryIssInit() {
-    guard !iss_init() else { return }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-      self?.retryIssInit()
+  private func reconcileInputConnection() {
+    let allowed = iss_has_event_access()
+    if !allowed && inputActive { iss_suspend_for_permission_change() }
+    let active = allowed && !iss_input_requires_restart() && iss_init()
+    guard active != inputActive else { return }
+    inputActive = active
+    if active {
+      reregisterAllHotkeys()
+    } else {
+      HotKeyManager.shared.unregisterAll()
+      iss_set_overlay_hotkey(ISSOverlayModeMissionControl, 0, 0, false)
+      iss_set_overlay_hotkey(ISSOverlayModeAppExpose, 0, 0, false)
     }
+    NotificationCenter.default.post(
+      name: Notification.Name("MaccelerateInputConnectionChanged"), object: nil)
   }
 
   // Launching the app directly from a mounted DMG and then from /Applications
@@ -238,7 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     NSApp.activate(ignoringOtherApps: true)
     NSApp.orderFrontStandardAboutPanel(options: [
       .credits: NSAttributedString(
-        string: "Based on InstantSpaceSwitcher by jurplel (MIT). Original Maccelerate contributions: MIT License. Full licenses and attribution are included in the app bundle and disk image.")
+        string: "Based on InstantSpaceSwitcher by jurplel (MIT). Original Maccelerate contributions: MIT License. Full licenses and attribution are included in the app bundle.")
     ])
     // Ensure window comes to front if already open
     NSApp.windows.first(where: { $0.title.contains("About") })?.makeKeyAndOrderFront(nil)
@@ -267,6 +283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     HotKeyManager.shared.unregisterAll()
     iss_set_overlay_hotkey(ISSOverlayModeMissionControl, 0, 0, false)
     iss_set_overlay_hotkey(ISSOverlayModeAppExpose, 0, 0, false)
+    guard inputActive && iss_is_active() else { return }
     for identifier in HotkeyIdentifier.allCases {
       registerHotkey(for: identifier, combination: hotkeyStore.combination(for: identifier))
     }

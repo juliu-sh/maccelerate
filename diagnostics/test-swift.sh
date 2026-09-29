@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+bash diagnostics/test-input-permissions.sh
 bash diagnostics/test-gesture-recovery.sh
 bash diagnostics/test-async-switch.sh
 bash diagnostics/test-compatibility.sh

@@ -12,6 +12,13 @@
  */
 bool iss_init(void);
 
+/** Permission checks do not prompt. A disabled/revoked input connection is
+ * fail-closed until the process is restarted; settings remain available. */
+bool iss_has_event_access(void);
+bool iss_is_active(void);
+bool iss_input_requires_restart(void);
+void iss_suspend_for_permission_change(void);
+
 /** @brief Clean up resources */
 void iss_destroy(void);
 

@@ -1,4 +1,5 @@
 import AppKit
+import ISS
 
 final class PreferencesTabViewController: NSViewController {
   private let pages: [NSViewController] = [
@@ -10,6 +11,7 @@ final class PreferencesTabViewController: NSViewController {
   private let permissionLabel = SettingsDesign.text("", size: 11, color: .secondaryLabelColor)
   private let permissionButton = NSButton(title: "Open System Settings", target: nil, action: nil)
   private var activationObserver: NSObjectProtocol?
+  private var inputObserver: NSObjectProtocol?
 
   override func loadView() {
     let background = SettingsSurface()
@@ -81,10 +83,14 @@ final class PreferencesTabViewController: NSViewController {
     activationObserver = NotificationCenter.default.addObserver(
       forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
     ) { [weak self] _ in self?.refreshPermissionStatus() }
+    inputObserver = NotificationCenter.default.addObserver(
+      forName: Notification.Name("MaccelerateInputConnectionChanged"), object: nil, queue: .main
+    ) { [weak self] _ in self?.refreshPermissionStatus() }
   }
 
   deinit {
     if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
+    if let inputObserver { NotificationCenter.default.removeObserver(inputObserver) }
   }
 
   @objc private func changePage(_ sender: NSSegmentedControl) { showPage(sender.selectedSegment) }
@@ -97,10 +103,17 @@ final class PreferencesTabViewController: NSViewController {
   }
 
   private func refreshPermissionStatus() {
-    let trusted = AXIsProcessTrusted()
-    permissionLabel.stringValue = trusted ? "Accessibility connected · Changes save automatically"
-      : "Accessibility access is needed to switch Spaces."
-    permissionButton.isHidden = trusted
+    let trusted = iss_has_event_access()
+    if iss_input_requires_restart() {
+      permissionLabel.stringValue = "Input stopped. Check access, then quit and reopen Maccelerate."
+    } else if trusted && iss_is_active() {
+      permissionLabel.stringValue = "Accessibility connected · Changes save automatically"
+    } else if trusted {
+      permissionLabel.stringValue = "Input connection unavailable. Quit and reopen Maccelerate."
+    } else {
+      permissionLabel.stringValue = "Accessibility access is needed to switch Spaces."
+    }
+    permissionButton.isHidden = trusted && iss_is_active()
   }
 
   @objc private func openPermissions() {

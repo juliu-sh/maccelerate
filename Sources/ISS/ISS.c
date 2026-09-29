@@ -68,6 +68,9 @@ extern CGSSpaceID CGSGetActiveSpace(CGSConnectionID connection) __attribute__((w
 
 static CFMachPortRef globalTap = NULL;
 static CFRunLoopSourceRef globalSource = NULL;
+static bool inputRequiresRestart = false;
+static unsigned tapTimeoutCount = 0;
+static CFAbsoluteTime tapTimeoutWindow = 0;
 static bool cmdTabPending = false;
 static CFAbsoluteTime lastCmdTabKeyDown = 0;
 static CFAbsoluteTime lastCmdTabRelease = 0;
@@ -195,6 +198,10 @@ static useconds_t overlay_progressive_phase_delay(void) {
 static bool post_overlay_phase(CGEventTapProxy proxy, CGEventRef provenance,
                                CGSGesturePhase phase, double progress,
                                double velocity) {
+    if (inputRequiresRestart || !iss_has_event_access()) {
+        iss_suspend_for_permission_change();
+        return false;
+    }
     CGEventRef event = CGEventCreateCopy(provenance);
     if (!event) return false;
 
@@ -383,6 +390,10 @@ static CGEventRef accelerate_physical_vertical_gesture(
         return event;
     }
 
+    if (inputRequiresRestart || !iss_has_event_access()) {
+        iss_suspend_for_permission_change();
+        return event;
+    }
     if (iss_requires_event_augmentation()) {
         CGEventRef accelerated = iss_accelerate_vertical_dock_swipe_event(
             event, multiplier, kMacOS27MaxGestureVelocity);
@@ -450,8 +461,29 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
                                    CGEventRef event, void *refcon) {
     (void)refcon;
 
-    // Re-enable if the system disabled our tap for being too slow
-    if (type == kCGEventTapDisabledByTimeout || type == kCGEventTapDisabledByUserInput) {
+    // A system/user disable is not a timeout. Never fight permission revocation
+    // by re-enabling its filter or completing pending synthetic gestures.
+    if (type == kCGEventTapDisabledByUserInput) {
+        iss_suspend_for_permission_change();
+        return event;
+    }
+    if (inputRequiresRestart) return event;
+    if (type == kCGEventTapDisabledByTimeout) {
+        if (!iss_has_event_access()) {
+            iss_suspend_for_permission_change();
+            return event;
+        }
+        if (globalTap) {
+            const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+            if (now - tapTimeoutWindow > 5.0) {
+                tapTimeoutWindow = now;
+                tapTimeoutCount = 0;
+            }
+            if (++tapTimeoutCount > 3 || !CFMachPortIsValid(globalTap)) {
+                iss_suspend_for_permission_change();
+                return event;
+            }
+        }
         async_cancel(false);
         interruptedHorizontalSwipe = interruptedHorizontalSwipe || swipeTracking;
         swipeTracking = false;
@@ -853,6 +885,10 @@ bool iss_can_move(ISSSpaceInfo info, ISSDirection direction) {
 
 static bool iss_post_dock_swipe_at(CGSGesturePhase phase, ISSDirection direction, double velocity,
                                     const CGPoint *location) {
+    if (!iss_has_event_access() || inputRequiresRestart) {
+        iss_suspend_for_permission_change();
+        return false;
+    }
     const bool isRight = (direction == ISSDirectionRight);
 
     // Preserve the library's direction sign in the serialized macOS 27 path.
@@ -1017,9 +1053,31 @@ void iss_set_overlay_detection_enabled(bool enabled) {
 
 #include "async_switch.h"
 
+bool iss_has_event_access(void) {
+    return AXIsProcessTrusted() && CGPreflightPostEventAccess();
+}
+bool iss_input_requires_restart(void) { return inputRequiresRestart; }
+bool iss_is_active(void) {
+    return !inputRequiresRestart && globalTap && CFMachPortIsValid(globalTap)
+        && CGEventTapIsEnabled(globalTap);
+}
+void iss_suspend_for_permission_change(void) {
+    inputRequiresRestart = true;
+    iss_destroy();
+}
+
 bool iss_init(void) {
+    if (inputRequiresRestart) return false;
+    // CGEventTapCreate may silently remove unauthorized event types. Do not
+    // accept a partial tap before the initial Accessibility grant.
+    if (!iss_has_event_access()) {
+        if (globalTap) iss_suspend_for_permission_change();
+        return false;
+    }
     if (globalTap) {
-        return true;
+        if (iss_is_active()) return true;
+        iss_suspend_for_permission_change();
+        return false;
     }
 
     if (!predictionsDict) {
@@ -1044,13 +1102,23 @@ bool iss_init(void) {
     }
 
     globalSource = CFMachPortCreateRunLoopSource(NULL, globalTap, 0);
+    if (!globalSource || !iss_has_event_access()) {
+        iss_suspend_for_permission_change();
+        return false;
+    }
     CFRunLoopAddSource(CFRunLoopGetMain(), globalSource, kCFRunLoopCommonModes);
     CGEventTapEnable(globalTap, true);
 
+    if (!iss_is_active()) {
+        iss_suspend_for_permission_change();
+        return false;
+    }
     return true;
 }
 
 void iss_destroy(void) {
+    // Disconnect input before running cancellation callbacks.
+    if (globalTap) CGEventTapEnable(globalTap, false);
     async_shutdown();
     swipeTracking = false;
     swipeFired = false;
@@ -1058,6 +1126,10 @@ void iss_destroy(void) {
     cmdTabPending = false;
     lastCmdTabKeyDown = 0;
     lastCmdTabRelease = 0;
+    activeOverlayHotkey = -1;
+    activeOverlayHotkeyWasAccelerated = false;
+    pendingMenuOverlay = -1;
+    menuOverlayWasTriggered = false;
     if (predictionsDict) {
         CFRelease(predictionsDict);
         predictionsDict = NULL;
@@ -1069,6 +1141,7 @@ void iss_destroy(void) {
             CFRelease(globalSource);
             globalSource = NULL;
         }
+        CFMachPortInvalidate(globalTap);
         CFRelease(globalTap);
         globalTap = NULL;
     }
@@ -1132,6 +1205,7 @@ static bool iss_switch_with_info(const ISSSpaceInfo *info, ISSDirection directio
 }
 
 bool iss_switch(ISSDirection direction) {
+    if (inputRequiresRestart || !iss_has_event_access()) return false;
     if (async_busy()) return false;
     ISSSpaceInfo info;
     if (iss_get_space_info(&info)) {
@@ -1152,6 +1226,7 @@ bool iss_switch(ISSDirection direction) {
 
 static bool iss_switch_to_index_internal(unsigned int targetIndex, bool notify,
                                          bool usePrediction) {
+    if (inputRequiresRestart || !iss_has_event_access()) return false;
     if (async_busy()) return false;
     ISSSpaceInfo info;
     if (!iss_get_space_info(&info)) {
@@ -1372,6 +1447,7 @@ static bool resolve_cmd_tab_destination(pid_t pid, unsigned int *outIndex) {
 }
 
 bool iss_follow_cmd_tab_application(pid_t pid) {
+    if (inputRequiresRestart || !iss_has_event_access()) return false;
     if (async_busy()) return false;
     unsigned int index;
     // Keep the original synchronous CLI/legacy semantics and eligibility.
@@ -1381,7 +1457,8 @@ bool iss_follow_cmd_tab_application(pid_t pid) {
 
 uint64_t iss_request_follow_cmd_tab_application(pid_t pid,
                                                ISSSwitchCompletion completion) {
-    if (!iss_uses_async_switching() || !pthread_main_np() || asyncDelivering) return 0;
+    if (!iss_uses_async_switching() || !pthread_main_np() || asyncDelivering
+        || inputRequiresRestart || !iss_has_event_access()) return 0;
     unsigned int index;
     if (!resolve_cmd_tab_destination(pid, &index)) return 0;
     return iss_request_switch_to_index(index, ISSSwitchSourceCmdTab, completion);
@@ -1423,7 +1500,8 @@ bool iss_take_overlay_menu_triggered(void) {
 }
 
 bool iss_trigger_overlay_from_event(ISSOverlayMode mode, CGEventRef event) {
-    if (!valid_overlay_mode(mode) || !event) return false;
+    if (!valid_overlay_mode(mode) || !event || !iss_has_event_access()
+        || inputRequiresRestart) return false;
     const pid_t sourcePid = (pid_t)CGEventGetIntegerValueField(
         event, kCGEventSourceUnixProcessID);
     if (sourcePid != 0) return false;

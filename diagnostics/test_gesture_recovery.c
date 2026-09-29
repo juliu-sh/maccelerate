@@ -19,6 +19,9 @@ static void capture_tap_post(CGEventTapProxy proxy, CGEventRef event) {
 }
 // Exercise the real private callback without installing an event tap or
 // delivering any synthetic input to the desktop.
+static bool fixture_trusted(void) { return true; }
+#define AXIsProcessTrusted fixture_trusted
+#define CGPreflightPostEventAccess fixture_trusted
 #define CGEventPost capture_post
 #define CGEventTapPostEvent capture_tap_post
 #include "../Sources/ISS/ISS.c"
@@ -66,10 +69,10 @@ static void begin_tracking(bool already_fired) {
 int main(int argc, char **argv) {
     assert(setenv("ISS_FORCE_EVENT_AUGMENTATION", argc > 1 ? argv[1] : "0", 1) == 0);
     const CGEventType interruptions[] = {
-        kCGEventTapDisabledByTimeout, kCGEventTapDisabledByUserInput
+        kCGEventTapDisabledByTimeout
     };
     unsigned scenarios = 0;
-    for (unsigned i = 0; i < 2; i++) {
+    for (unsigned i = 0; i < sizeof(interruptions) / sizeof(interruptions[0]); i++) {
         iss_set_swipe_override(false);
         iss_set_swipe_override(true);
         eventTapCallback(NULL, interruptions[i], NULL, NULL);

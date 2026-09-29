@@ -180,6 +180,10 @@ static bool async_overview_active(void) {
     return active;
 }
 static void async_tick(void) {
+    if (inputRequiresRestart || !iss_has_event_access()) {
+        iss_suspend_for_permission_change();
+        return;
+    }
     if (asyncStep.active && asyncStep.nextPhase != kCGSGesturePhaseNone) {
         CGSGesturePhase phase = asyncStep.nextPhase;
         if (!iss_post_dock_swipe_at(phase, asyncStep.direction, asyncStep.velocity, &asyncStep.snapshot.location)) {
@@ -247,7 +251,8 @@ static void async_tick(void) {
 }
 static uint64_t async_submit(bool relative, unsigned int value, ISSSwitchSource source,
                              ISSSwitchCompletion completion) {
-    if (!iss_uses_async_switching() || !pthread_main_np() || asyncDelivering) return 0;
+    if (!iss_uses_async_switching() || !pthread_main_np() || asyncDelivering
+        || inputRequiresRestart || !iss_has_event_access()) return 0;
     ISSAsyncRequest request = {0};
     request.id = ++asyncNextID;
     if (!request.id) request.id = ++asyncNextID;

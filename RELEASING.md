@@ -15,9 +15,15 @@ Maccelerate is prepared for an MIT open-source launch with public GitHub Release
 4. Serve the generated `appcast.xml` through the public repository at `https://raw.githubusercontent.com/juliu-sh/maccelerate/main/appcast.xml`. Publish the versioned DMG first, then commit the matching feed. The app reads this URL; `maccelerate.app` remains the website domain.
 5. Review `PRIVACY.md`, `LICENSE`, `LICENSES/`, `NOTICE`, and assets before launch.
 
+## Current release blocker
+
+Do not publish 1.1.17: withdrawing Accessibility access while the app runs was reported to block clicks and gestures. The pointer still moves. A restart restored input, but stopping the process alone was not verified by the user. The absence of acceleration on the second macOS 27 Mac is also not yet resolved by a live retest.
+
+The 1.1.18 candidate adds permission-gated tap creation, a fail-closed response to system/user disable, bounded timeout recovery, cancellation of pending input, and permission-aware shortcut registration. Isolated fault tests cannot prove that the live OS-level freeze is fixed. Re-test initial grant, app restart, acceleration and permission withdrawal on the affected systems before publishing. Keep old drafts blocked and the public appcast empty until that gate passes.
+
 ## Prepare a candidate
 
-Increase the patch version and build number for every app change. The current candidate is **1.1.17, build 28**. Keep the bundle identifier stable for updates; it is currently `com.interversehq.Maccelerate`. Any initial move to a Jukes Studio ID must happen before the first public build, with a plan for existing preferences and permissions.
+Increase the patch version and build number for every app change. The current candidate is **1.1.18, build 29**. Keep the bundle identifier stable for updates; it is currently `com.interversehq.Maccelerate`. Any initial move to a Jukes Studio ID must happen before the first public build, with a plan for existing preferences and permissions.
 
 Finish the intended changes, run `bash diagnostics/test-swift.sh`, and commit the reviewed source. Then, from the public Free checkout:
 
@@ -48,7 +54,7 @@ Install the DMG on a second Mac. Check Gatekeeper, Accessibility/Input Monitorin
 Push the reviewed source commit to the configured GitHub repository, then create a draft:
 
 ```sh
-python3 dist/release.py draft 1.1.17
+python3 dist/release.py draft 1.1.18
 ```
 
 The tool refuses dirty candidates, changed DMGs, or a source commit that no longer matches. The draft contains the exact DMG, checksum, source ZIP and appcast. Review release notes and the downloaded asset before launch.
@@ -58,7 +64,7 @@ The tool refuses dirty candidates, changed DMGs, or a source commit that no long
 After the candidate and customer flow have been tested:
 
 ```sh
-python3 dist/release.py publish 1.1.17
+python3 dist/release.py publish 1.1.18
 ```
 
 This checks the draft DMG checksum and makes the GitHub Release public. It does not deploy a website or push a Homebrew tap automatically.

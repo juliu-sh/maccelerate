@@ -100,6 +100,10 @@ static void *fixture_dlsym(void *handle, const char *name) { (void)handle; (void
 #define CGDisplayCreateUUIDFromDisplayID fixture_uuid
 #define CGWindowListCopyWindowInfo fixture_windows
 #define CGEventCreate fixture_create
+static bool fixture_access = true;
+static bool fixture_trusted(void) { return fixture_access; }
+#define AXIsProcessTrusted fixture_trusted
+#define CGPreflightPostEventAccess fixture_trusted
 #define CGEventPost capture_post
 #define CGEventTapPostEvent capture_tap
 #define usleep fixture_sleep
@@ -232,6 +236,8 @@ static void drain(void) {
     assert(sleeps == 0 && nested_runs == 0);
 }
 static void reset(void) {
+    inputRequiresRestart = false;
+    fixture_access = true;
     iss_destroy();
     assert(!asyncTimer && !async_busy());
     post_count = sleeps = nested_runs = switch_count = completion_count = 0;
@@ -321,9 +327,14 @@ int main(void) {
             eventTapCallback(NULL, type, NULL, NULL);
             eventTapCallback(NULL, type, NULL, NULL);
             drain(); expect(id, ISSSwitchResultCancelled);
-            assert(post_count == (stage ? 3u : 0u));
-            auto_confirm = true; newer = relative(ISSDirectionRight); drain();
-            expect(newer, ISSSwitchResultSuccess);
+            if (interruption) {
+                assert(post_count == stage && inputRequiresRestart);
+                assert(!relative(ISSDirectionRight) && !asyncTimer);
+            } else {
+                assert(post_count == (stage ? 3u : 0u));
+                auto_confirm = true; newer = relative(ISSDirectionRight); drain();
+                expect(newer, ISSSwitchResultSuccess);
+            }
         }
     }
     for (unsigned stage = 0; stage < 4; stage++) {
@@ -443,6 +454,19 @@ int main(void) {
     reset();
     assert(!iss_switch(ISSDirectionRight));
     assert(sleeps == 2 && nested_runs >= 60 && !async_busy());
+    // Revocation between phases cancels once, disarms the timer and posts no
+    // Changed/Ended gesture or fresh request after permissions disappear.
+    reset(); id = relative(ISSDirectionRight); fire();
+    assert(post_count == 1 && asyncStep.active);
+    fixture_access = false; fire();
+    expect(id, ISSSwitchResultCancelled);
+    assert(post_count == 1 && !async_busy() && !asyncTimer && inputRequiresRestart);
+    assert(relative(ISSDirectionRight) == 0);
+    fixture_access = true;
+    assert(relative(ISSDirectionRight) == 0); // No silent reactivation.
+    reset(); fixture_access = false;
+    assert(relative(ISSDirectionRight) == 0 && post_count == 0);
+    assert(!iss_switch(ISSDirectionRight) && post_count == 0);
     iss_destroy();
     printf("PASS: %u isolated scenarios; async callbacks do not wait; no desktop input\n", scenarios);
     return 0;
