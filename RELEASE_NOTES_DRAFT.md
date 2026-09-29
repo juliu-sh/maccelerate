@@ -1,4 +1,4 @@
-# Maccelerate 1.1.16 — Free release candidate (build 25)
+# Maccelerate 1.1.16 — Free release candidate (build 26)
 
 A free, MIT-licensed macOS menu bar app based on InstantSpaceSwitcher by jurplel.
 

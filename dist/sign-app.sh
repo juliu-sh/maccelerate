@@ -2,10 +2,10 @@
 set -euo pipefail
 APP="${1:?App bundle required}"
 IDENTITY="${2:?Signing identity required}"
-OPTIONS=()
+CODESIGN_ARGS=(--force --preserve-metadata=entitlements --sign "$IDENTITY")
 if [[ "${3:-}" == "--distribution" ]]; then
   [[ "$IDENTITY" == "Developer ID Application:"* ]] || exit 1
-  OPTIONS=(--options runtime --timestamp)
+  CODESIGN_ARGS+=(--options runtime --timestamp)
 fi
 FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework"
 # Sign nested code first; never rely on --deep to sign a distribution build.
@@ -17,6 +17,6 @@ for TARGET in \
   "$FRAMEWORK" \
   "$APP/Contents/MacOS/ISSCli" \
   "$APP"; do
-  codesign --force "${OPTIONS[@]}" --preserve-metadata=entitlements --sign "$IDENTITY" "$TARGET"
+  codesign "${CODESIGN_ARGS[@]}" "$TARGET"
 done
 codesign --verify --deep --strict --verbose=2 "$APP"
