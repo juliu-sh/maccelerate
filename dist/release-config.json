@@ -1,0 +1,8 @@
+{
+  "github_repository": "juliu-sh/maccelerate",
+  "homebrew_repository": "juliu-sh/homebrew-tap",
+  "feed_url": "https://raw.githubusercontent.com/juliu-sh/maccelerate/main/appcast.xml",
+  "signing_identity": "Developer ID Application: Julius Hagen (DK9USXMYX5)",
+  "notary_profile": "Maccelerate-notary",
+  "sparkle_account": "maccelerate"
+}

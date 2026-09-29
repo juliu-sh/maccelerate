@@ -1,0 +1,15 @@
+Maccelerate
+Copyright 2026 Maccelerate contributors
+
+Maccelerate is based on InstantSpaceSwitcher by jurplel.
+InstantSpaceSwitcher is Copyright (c) 2026 jurplel and is licensed under the
+MIT License. Its complete license and copyright notice are in
+LICENSES/InstantSpaceSwitcher-MIT.txt.
+
+Original Maccelerate contributions are licensed under the MIT License in
+LICENSE. The MIT terms continue to apply to material taken
+from InstantSpaceSwitcher, including upstream material in modified files.
+
+Maccelerate includes Sparkle for software updates. Sparkle and its bundled
+components retain their respective copyright notices and license terms in
+LICENSES/Sparkle.txt.

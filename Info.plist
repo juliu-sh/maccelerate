@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>Maccelerate</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.interversehq.Maccelerate</string>
+	<key>CFBundleName</key>
+	<string>Maccelerate</string>
+	<key>CFBundleDisplayName</key>
+	<string>Maccelerate</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.1.16</string>
+	<key>CFBundleVersion</key>
+	<string>25</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 jurplel and Maccelerate contributors</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/juliu-sh/maccelerate/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>bCxpyB6Xgcj3WXJuqQn2EHrVnk94aoqWvpoXgyJIjTk=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
+	<key>SUEnableSystemProfiling</key>
+	<false/>
+	<key>MaccelerateEdition</key>
+	<string>free</string>
+</dict>
+</plist>
