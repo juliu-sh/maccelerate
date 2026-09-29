@@ -37,10 +37,7 @@ trap 'rm -rf "${STAGING_DIR}"' EXIT
 }
 
 ditto "${APP_BUNDLE}" "${STAGING_DIR}/${PRODUCT_NAME}.app"
-cp LICENSE "${STAGING_DIR}/LICENSE"
-mkdir -p "${STAGING_DIR}/LICENSES"
-cp LICENSES/*.txt "${STAGING_DIR}/LICENSES/"
-cp NOTICE "${STAGING_DIR}/NOTICE"
+# License notices travel inside the app; keep the installer limited to drag-and-drop.
 ln -s /Applications "${STAGING_DIR}/Applications"
 rm -f "${DMG_NAME}"
 hdiutil create -volname "${PRODUCT_NAME}" -srcfolder "${STAGING_DIR}" \

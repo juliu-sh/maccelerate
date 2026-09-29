@@ -1,4 +1,4 @@
-# Maccelerate 1.1.16 — Free release candidate (build 27)
+# Maccelerate 1.1.17 — Free release candidate (build 28)
 
 A free, MIT-licensed macOS menu bar app based on InstantSpaceSwitcher by jurplel.
 
@@ -9,7 +9,8 @@ A free, MIT-licensed macOS menu bar app based on InstantSpaceSwitcher by jurplel
 - Native settings for switching and shortcuts; no account or activation required.
 - Universal app for Apple Silicon and Intel; deployment target macOS 13.
 - Sparkle update controls; automatic checks off by default.
-- Included ISSCli, MIT notices and complete Sparkle third-party licenses.
+- Included ISSCli, MIT notices and complete Sparkle third-party licenses inside the app.
+- Clean drag-and-drop installer with just Maccelerate and the Applications shortcut.
 
 ## Compatibility status
 

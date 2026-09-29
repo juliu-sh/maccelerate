@@ -17,7 +17,7 @@ Maccelerate is prepared for an MIT open-source launch with public GitHub Release
 
 ## Prepare a candidate
 
-Increase the patch version and build number for every app change. The current candidate is **1.1.16, build 27**. Keep the bundle identifier stable for updates; it is currently `com.interversehq.Maccelerate`. Any initial move to a Jukes Studio ID must happen before the first public build, with a plan for existing preferences and permissions.
+Increase the patch version and build number for every app change. The current candidate is **1.1.17, build 28**. Keep the bundle identifier stable for updates; it is currently `com.interversehq.Maccelerate`. Any initial move to a Jukes Studio ID must happen before the first public build, with a plan for existing preferences and permissions.
 
 Finish the intended changes, run `bash diagnostics/test-swift.sh`, and commit the reviewed source. Then, from the public Free checkout:
 
@@ -48,7 +48,7 @@ Install the DMG on a second Mac. Check Gatekeeper, Accessibility/Input Monitorin
 Push the reviewed source commit to the configured GitHub repository, then create a draft:
 
 ```sh
-python3 dist/release.py draft 1.1.16
+python3 dist/release.py draft 1.1.17
 ```
 
 The tool refuses dirty candidates, changed DMGs, or a source commit that no longer matches. The draft contains the exact DMG, checksum, source ZIP and appcast. Review release notes and the downloaded asset before launch.
@@ -58,7 +58,7 @@ The tool refuses dirty candidates, changed DMGs, or a source commit that no long
 After the candidate and customer flow have been tested:
 
 ```sh
-python3 dist/release.py publish 1.1.16
+python3 dist/release.py publish 1.1.17
 ```
 
 This checks the draft DMG checksum and makes the GitHub Release public. It does not deploy a website or push a Homebrew tap automatically.
@@ -73,6 +73,6 @@ Never replace assets for a published version. Prepare a new version and build fo
 
 ## Licenses and source
 
-The app and DMG include MIT, the original InstantSpaceSwitcher MIT notice, Sparkle's complete third-party licenses, and attribution. The source ZIP uses the exact `dist/public-files.json` inventory; its contents and the complete Git history are checked by `dist/public_boundary.py`. Publish only from the newly exported public checkout. Premium code, local launch notes, website drafts, binaries and the mixed development history are excluded. Unknown files fail the publication gate until intentionally added to the inventory. MIT permits redistribution of both source and binaries with the required notices.
+The app includes MIT, the original InstantSpaceSwitcher MIT notice, Sparkle's complete third-party licenses, and attribution. The DMG contains only the app and an Applications shortcut; the notices remain inside the app when it is installed. The source ZIP uses the exact `dist/public-files.json` inventory; its contents and the complete Git history are checked by `dist/public_boundary.py`. Publish only from the newly exported public checkout. Premium code, local launch notes, website drafts, binaries and the mixed development history are excluded. Unknown files fail the publication gate until intentionally added to the inventory. MIT permits redistribution of both source and binaries with the required notices.
 
 The app relies on undocumented macOS behavior and a private framework. This workflow targets direct distribution, not the Mac App Store.

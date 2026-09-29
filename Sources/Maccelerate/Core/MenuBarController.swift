@@ -150,7 +150,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
       options[.version] = "\(gitHash)"
     }
     options[.credits] = NSAttributedString(
-      string: "Based on InstantSpaceSwitcher by jurplel (MIT). Original Maccelerate contributions: MIT License. Full licenses and attribution are included in the app bundle and disk image.")
+      string: "Based on InstantSpaceSwitcher by jurplel (MIT). Original Maccelerate contributions: MIT License. Full licenses and attribution are included in the app bundle.")
 
     NSApp.orderFrontStandardAboutPanel(options: options)
     // Ensure window comes to front if already open
