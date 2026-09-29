@@ -17,7 +17,7 @@ Maccelerate is prepared for an MIT open-source launch with public GitHub Release
 
 ## Prepare a candidate
 
-Increase the patch version and build number for every app change. The current candidate is **1.1.16, build 26**. Keep the bundle identifier stable for updates; it is currently `com.interversehq.Maccelerate`. Any initial move to a Jukes Studio ID must happen before the first public build, with a plan for existing preferences and permissions.
+Increase the patch version and build number for every app change. The current candidate is **1.1.16, build 27**. Keep the bundle identifier stable for updates; it is currently `com.interversehq.Maccelerate`. Any initial move to a Jukes Studio ID must happen before the first public build, with a plan for existing preferences and permissions.
 
 Finish the intended changes, run `bash diagnostics/test-swift.sh`, and commit the reviewed source. Then, from the public Free checkout:
 

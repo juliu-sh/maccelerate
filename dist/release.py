@@ -107,8 +107,8 @@ def assets():
 
   url "https://github.com/{cfg['github_repository']}/releases/download/v#{{version}}/Maccelerate-#{{version}}.dmg"
   name "Maccelerate"
-  desc "Accelerate switching between macOS Spaces"
-  homepage "https://maccelerate.app"
+  desc "Accelerate switching between Spaces"
+  homepage "https://maccelerate.app/"
 
   livecheck do
     url :url
@@ -116,7 +116,7 @@ def assets():
   end
 
   auto_updates true
-  depends_on macos: ">= :ventura"
+  depends_on macos: :ventura
 
   app "Maccelerate.app"
 end
