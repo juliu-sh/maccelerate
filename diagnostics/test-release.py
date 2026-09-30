@@ -5,6 +5,7 @@ import json
 import pathlib
 import plistlib
 import tempfile
+import sys
 import unittest
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
@@ -56,6 +57,38 @@ class ReleaseSafetyTests(unittest.TestCase):
         self.config["github_repository"] = ""
         self.config_path.write_text(json.dumps(self.config))
         with self.assertRaisesRegex(ValueError, "not configured"):
+            release.assets()
+        self.assertEqual(self.commands, [])
+
+    def test_local_settings_override_only_signing_configuration(self):
+        settings = {"signing_identity": "Developer ID Application: Test (TEAM)", "notary_profile": "test-notary", "sparkle_account": "test-updates"}
+        self.config_path.with_name("release-config.local.json").write_text(json.dumps(settings))
+        cfg = release.config(True)
+        self.assertEqual(cfg["github_repository"], self.config["github_repository"])
+        for key, value in settings.items():
+            self.assertEqual(cfg[key], value)
+        self.assertNotIn("signing_identity", release.config(public_only=True))
+
+    def test_destination_configuration_does_not_copy_local_settings(self):
+        local = self.config_path.with_name("release-config.local.json")
+        local.write_text(json.dumps({"notary_profile": "local-only", "sparkle_account": "local-only"}))
+        with patch.object(sys, "argv", ["release.py", "configure", "--repository", "new-owner/app", "--tap", "new-owner/homebrew-tap"]):
+            release.main()
+        public = json.loads(self.config_path.read_text())
+        self.assertEqual(public["github_repository"], "new-owner/app")
+        self.assertNotIn("local-only", self.config_path.read_text())
+        self.assertEqual(json.loads(local.read_text())["notary_profile"], "local-only")
+
+    def test_local_config_cannot_redirect_public_download_destinations(self):
+        self.config_path.with_name("release-config.local.json").write_text(json.dumps({"github_repository": "different-owner/app"}))
+        with self.assertRaisesRegex(ValueError, "only accepts"):
+            release.config(True)
+        self.assertEqual(self.commands, [])
+
+    def test_missing_update_account_stops_before_keychain_commands(self):
+        self.config["sparkle_account"] = ""
+        self.config_path.write_text(json.dumps(self.config))
+        with self.assertRaisesRegex(ValueError, "Keychain account"):
             release.assets()
         self.assertEqual(self.commands, [])
 

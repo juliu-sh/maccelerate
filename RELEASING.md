@@ -1,84 +1,81 @@
 # Releasing Maccelerate
 
-Maccelerate is prepared for an MIT open-source launch with public GitHub Releases, Sparkle updates, and an own Homebrew tap. The Free app and its source are publicly downloadable without payment or activation. Free 1.1.18 (build 29) was published on 30 September 2026 after the user approved the live correction test and reported no other unexpected behavior in their macOS 27 testing.
+Official Free releases are MIT licensed and distributed through GitHub Releases,
+Sparkle and the [Homebrew tap](https://github.com/juliu-sh/homebrew-tap).
+For a local source build, follow [README.md](README.md); Apple signing credentials
+are only needed for distribution.
 
-## One-time setup
+## Distribution setup
 
-1. Configure the actual GitHub destinations:
+Use a Developer ID Application certificate and a validated `notarytool` Keychain
+profile. Keep certificates, passwords and private update keys outside the repository.
+
+Public destinations are in `dist/release-config.json`. Local signing settings go in
+**`dist/release-config.local.json`**, which is ignored by Git:
+
+```json
+{
+  "signing_identity": "Developer ID Application: YOUR NAME (YOUR TEAM ID)",
+  "notary_profile": "YOUR KEYCHAIN PROFILE",
+  "sparkle_account": "YOUR SPARKLE KEYCHAIN ACCOUNT"
+}
+```
+
+These values identify existing Keychain entries; do not put passwords or keys in
+this file. The local file only accepts these three fields. Signing and notarization
+can also use `MACCELERATE_CODESIGN_IDENTITY` and `MACCELERATE_NOTARY_PROFILE`.
+
+Forks need their own bundle ID, GitHub destinations, HTTPS feed and Sparkle key.
+Configure destinations with `python3 dist/release.py configure --repository
+OWNER/APP --tap OWNER/homebrew-tap`, and update `SUFeedURL` in `Info.plist` to match.
+For an existing update channel, preserve its bundle ID and signing key. Back up
+update keys encrypted outside the repository with `dist/backup-update-key.command`.
+
+## Prepare and test
+
+1. Increase the app version and build number in `Info.plist`. Builds must exceed
+   every entry in `appcast.xml`; published versions must not be reused.
+2. Update `RELEASE_NOTES_DRAFT.md`, run `bash diagnostics/test-swift.sh` and commit
+   the reviewed changes.
+3. From this public checkout, run:
+
    ```sh
-   python3 dist/release.py configure --repository OWNER/maccelerate --tap OWNER/homebrew-tap
-   gh auth login
+   python3 dist/public_boundary.py --history
+   ./dist/prepare-release.sh
    ```
-   Replace `OWNER` with the chosen account or organization. Create the repositories and connect `origin` only from the exported public Free checkout. The mixed development checkout must never be pushed: its old history contains excluded features and historical binaries. `dist/export-public.py` exports only the explicit file inventory and optionally initializes a new, unrelated Git history. Run `python3 dist/public_boundary.py --history` there before any push. Do not add the old development checkout as a remote or merge its history.
-2. The configured signing identity is `Developer ID Application: Julius Hagen (DK9USXMYX5)`. The notarization credentials are in Keychain profile `Maccelerate-notary`. No credentials are stored in `dist/release-config.json`.
-3. Sparkle 2.10.0 is pinned in `Package.swift` and `Package.resolved`. The private Ed25519 key uses Keychain account `maccelerate`. The public key is in `Info.plist`. Back up the private key in encrypted form outside the repository using `dist/backup-update-key.command /absolute/path/to/backup.enc`; enter the encryption password at the local prompt and keep it in your password manager. Never regenerate the key when preparing an update.
-4. Serve the generated `appcast.xml` through the public repository at `https://raw.githubusercontent.com/juliu-sh/maccelerate/main/appcast.xml`. Publish the versioned DMG first, then commit the matching feed. The app reads this URL; `maccelerate.app` remains the website domain.
-5. Review `PRIVACY.md`, `LICENSE`, `LICENSES/`, `NOTICE`, and assets before launch.
 
-## Resolved permission blocker
+The script builds both architectures, signs and notarizes the app and DMG, then
+creates checksums, a source ZIP, signed appcast, release notes, a manifest and a
+Homebrew cask in `build/release/<version>/`. Nothing is published by this step.
+`--allow-dirty` is for local trials only; those candidates cannot be published.
 
-The unpublished 1.1.16/1.1.17 candidates must remain unpublished: withdrawing Accessibility access while running could block clicks and gestures. Free 1.1.18 adds permission-gated tap creation, safe suspension after system/user disable, bounded timeout recovery, cancellation of pending input, and permission-aware shortcuts. On 30 September 2026, the user reported the correction works and explicitly approved release; they reported no other unexpected behavior in their macOS 27 testing. Exact macOS 27 build and hardware details were not supplied, so this is not a claim of complete platform coverage.
+Test the exact DMG on another Mac: installation, permissions, switching,
+shortcuts, login startup and quitting. Verify a full Sparkle update using a
+separate test feed. Keep untested builds off the official feed.
 
-The public release uses the exact notarized candidate built from commit `bdb28d4a7a5c7445bb97ed9e986acb682c853a62`. Later feed/documentation commits do not replace that build or its immutable assets. The source ZIP preserves the build-time source snapshot, including its then-pending release checklist.
+## Publish
 
-## Prepare a candidate
-
-Increase the patch version and build number for every app change. The current public release is **1.1.18, build 29**; use a new version and build for the next candidate. Keep the bundle identifier stable for updates; it is currently `com.interversehq.Maccelerate`. Any initial move to a Jukes Studio ID must happen before the first public build, with a plan for existing preferences and permissions.
-
-Finish the intended changes, run `bash diagnostics/test-swift.sh`, and commit the reviewed source. Then, from the public Free checkout:
+Push the reviewed source, then create and review the draft:
 
 ```sh
-python3 dist/public_boundary.py --history
-./dist/prepare-release.sh
+python3 dist/release.py draft VERSION
+python3 dist/release.py publish VERSION
 ```
 
-The script requires the public Free checkout, builds both architectures, embeds Sparkle, signs nested helpers before their containing framework and app, submits the app to Apple, staples it, creates and signs the DMG, submits and staples the DMG, and verifies Apple's accepted status. It signs the final DMG with Sparkle and creates:
+The release tool verifies the source commit and candidate checksums. Publish the
+DMG first, verify its public download, then commit the matching appcast and update
+the separate Homebrew tap from the generated cask. Check the cask with Homebrew's
+style and online audit tools. Update website links after downloads are available.
 
-```text
-build/release/<version>/
-  Maccelerate-<version>.dmg
-  Maccelerate-<version>.dmg.sha256
-  Maccelerate-<version>-source.zip
-  appcast.xml
-  release-notes.md
-  manifest.json
-  Casks/maccelerate.rb
-```
+Keep published app assets immutable; corrections need a new version and build.
+The source ZIP uses the exact `dist/public-files.json` inventory. The publication
+gate checks sources, complete Git history and archives; check the app with
+`python3 dist/public_boundary.py --app build/Maccelerate.app`.
 
-`--allow-dirty` is available for a local trial; such a candidate cannot be published by the release tool and does not receive a source ZIP. This does not commit or publish anything. Existing local candidate metadata is not overwritten. Build numbers must exceed all entries in the committed `appcast.xml`.
+## Licenses
 
-## Review and draft
+Preserve Maccelerate's MIT license, the original InstantSpaceSwitcher MIT notice,
+attribution and Sparkle's complete third-party licenses. Notices are bundled
+inside the app; the DMG contains the app and Applications shortcut.
 
-Install the DMG on a second Mac. Check Gatekeeper, Accessibility/Input Monitoring permissions, switching, shortcuts, login startup, and quitting. Check the supported macOS versions and Apple Silicon/Intel claims. Test a complete Sparkle update from an older signed and notarized test build using a separate test feed; both builds need the same bundle ID and update public key. Do not publish a fake higher build to the customer feed.
-
-Push the reviewed source commit to the configured GitHub repository, then create a draft:
-
-```sh
-python3 dist/release.py draft 1.1.18
-```
-
-The tool refuses dirty candidates, changed DMGs, or a source commit that no longer matches. The draft contains the exact DMG, checksum, source ZIP and appcast. Review release notes and the downloaded asset before launch.
-
-## Publish in order
-
-After the candidate and customer flow have been tested:
-
-```sh
-python3 dist/release.py publish 1.1.18
-```
-
-This checks the draft DMG checksum and makes the GitHub Release public. It does not deploy a website or push a Homebrew tap automatically.
-
-1. Verify the public versioned DMG URL works without authentication.
-2. Deploy `build/release/<version>/appcast.xml` to the configured feed. If using the GitHub latest-release redirect, publishing the release already makes its appcast available. Test the final URL and download signature.
-3. Copy the generated `Casks/maccelerate.rb` into the separate `homebrew-tap` repository. Run `brew style` and `brew audit --cask --online` against the cask, then commit and push it. Install with `brew install --cask OWNER/tap/maccelerate`. `auto_updates true` declares Sparkle support; explicit Homebrew upgrades can use `brew upgrade --cask --greedy maccelerate`.
-4. Copy the published appcast back to this repository and commit it, preserving older entries for future releases.
-5. Update the website links and announcement. The website must describe the free download and included features accurately.
-
-Never replace assets for a published version. Prepare a new version and build for corrections. Apple and Sparkle private signing keys stay on the development Mac; this workflow does not upload them to GitHub Actions.
-
-## Licenses and source
-
-The app includes MIT, the original InstantSpaceSwitcher MIT notice, Sparkle's complete third-party licenses, and attribution. The DMG contains only the app and an Applications shortcut; the notices remain inside the app when it is installed. The source ZIP uses the exact `dist/public-files.json` inventory; its contents and the complete Git history are checked by `dist/public_boundary.py`. Publish only from the newly exported public checkout. Premium code, local launch notes, website drafts, binaries and the mixed development history are excluded. Unknown files fail the publication gate until intentionally added to the inventory. MIT permits redistribution of both source and binaries with the required notices.
-
-The app relies on undocumented macOS behavior and a private framework. This workflow targets direct distribution, not the Mac App Store.
+The app uses undocumented macOS APIs and targets direct distribution.

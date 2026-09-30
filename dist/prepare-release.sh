@@ -11,8 +11,8 @@ if [[ "${1:-}" != "--allow-dirty" && -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
-IDENTITY="${MACCELERATE_CODESIGN_IDENTITY:-$(python3 -c 'import json; print(json.load(open("dist/release-config.json"))["signing_identity"])')}"
-PROFILE="${MACCELERATE_NOTARY_PROFILE:-$(python3 -c 'import json; print(json.load(open("dist/release-config.json"))["notary_profile"])')}"
+IDENTITY="${MACCELERATE_CODESIGN_IDENTITY:-$(python3 dist/release.py config-value signing_identity)}"
+PROFILE="${MACCELERATE_NOTARY_PROFILE:-$(python3 dist/release.py config-value notary_profile)}"
 if [[ "${IDENTITY}" != "Developer ID Application:"* || -z "${PROFILE}" ]]; then
   echo "Set MACCELERATE_CODESIGN_IDENTITY to a Developer ID Application identity and MACCELERATE_NOTARY_PROFILE to a notarytool Keychain profile." >&2
   exit 1

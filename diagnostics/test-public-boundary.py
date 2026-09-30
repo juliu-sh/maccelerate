@@ -67,6 +67,23 @@ class PublicBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "inventory"):
             boundary.audit_archive(path, "Free/", self.root)
 
+    def test_local_configuration_and_key_backups_cannot_enter_inventory(self):
+        for name in ("dist/release-config.local.json", ".env.local", "backup.enc"):
+            with self.subTest(name=name):
+                (self.root / "dist/public-files.json").write_text(json.dumps(self.files + [name]))
+                with self.assertRaisesRegex(ValueError, "Unsafe public path"):
+                    boundary.public_files(self.root)
+
+    def test_public_config_cannot_contain_local_signing_settings(self):
+        self.files.append("dist/release-config.json")
+        (self.root / "dist/public-files.json").write_text(json.dumps(self.files))
+        config = self.root / "dist/release-config.json"
+        config.write_text(json.dumps({"signing_identity": "Developer ID Application: Test (TEAM)"}))
+        with self.assertRaisesRegex(ValueError, "local signing settings"):
+            boundary.audit_sources(self.root)
+        config.write_text(json.dumps({"signing_identity": "", "notary_profile": "", "sparkle_account": ""}))
+        boundary.audit_sources(self.root)
+
     def test_valid_source_zip_passes(self):
         path = self.root / "source.zip"
         with zipfile.ZipFile(path, "w") as archive:

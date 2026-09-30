@@ -21,7 +21,7 @@ def public_files(root=ROOT):
         raise ValueError("Invalid public file inventory")
     for name in files:
         p = pathlib.PurePosixPath(name)
-        if p.is_absolute() or ".." in p.parts or p.name == ".DS_Store" or p.suffix in {".p12", ".p8", ".key", ".pem", ".dmg", ".zip"}:
+        if p.is_absolute() or ".." in p.parts or p.name == ".DS_Store" or p.suffix in {".p12", ".p8", ".key", ".pem", ".dmg", ".zip", ".enc"} or p.name.startswith(".env") or p.name.endswith(".local.json"):
             raise ValueError(f"Unsafe public path: {name}")
     return files
 
@@ -41,6 +41,10 @@ def audit_sources(root=ROOT):
         if path.is_symlink() or not path.is_file():
             raise ValueError(f"Missing or linked public file: {name}")
         inspect_content(name, path.read_bytes())
+        if name == "dist/release-config.json":
+            settings = json.loads(path.read_text())
+            if any(settings.get(key) for key in ("signing_identity", "notary_profile", "sparkle_account")):
+                raise ValueError("Keep local signing settings in ignored dist/release-config.local.json")
     expected = set(files)
     for folder in ("Sources", "Tests"):
         for path in (root / folder).rglob("*"):

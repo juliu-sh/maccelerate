@@ -30,8 +30,17 @@ def sha(path):
         return hashlib.file_digest(stream, "sha256").hexdigest() if hasattr(hashlib, "file_digest") else hashlib.sha256(stream.read()).hexdigest()
 
 
-def config(require_repo=False):
+def config(require_repo=False, public_only=False):
     data = json.loads(CONFIG.read_text())
+    local = CONFIG.with_name("release-config.local.json")
+    if not public_only and local.exists():
+        settings = json.loads(local.read_text())
+        allowed = {"signing_identity", "notary_profile", "sparkle_account"}
+        if not isinstance(settings, dict) or set(settings) - allowed:
+            raise ValueError("Local release config only accepts signing_identity, notary_profile and sparkle_account.")
+        if any(not isinstance(value, str) for value in settings.values()):
+            raise ValueError("Local release settings must be strings.")
+        data.update(settings)
     if require_repo:
         for key in ("github_repository", "homebrew_repository"):
             if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", data[key]):
@@ -41,6 +50,8 @@ def config(require_repo=False):
 
 def assets():
     cfg = config(True)
+    if not cfg.get("sparkle_account"):
+        raise ValueError("Configure a Sparkle Keychain account in dist/release-config.local.json first.")
     public_boundary.audit_history(ROOT)
     app = ROOT / "build/Maccelerate.app"
     public_boundary.audit_app(app)
@@ -188,11 +199,12 @@ def main():
     setup.add_argument("--tap", required=True)
     subs.add_parser("assets")
     subs.add_parser("check-config")
+    subs.add_parser("config-value").add_argument("field", choices=("signing_identity", "notary_profile", "sparkle_account"))
     for command in ("draft", "publish"):
         subs.add_parser(command).add_argument("version")
     args = parser.parse_args()
     if args.command == "configure":
-        data = config()
+        data = config(public_only=True)
         for value in (args.repository, args.tap):
             if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value):
                 raise ValueError("Use OWNER/REPOSITORY.")
@@ -201,6 +213,8 @@ def main():
         data.update(github_repository=args.repository, homebrew_repository=args.tap)
         CONFIG.write_text(json.dumps(data, indent=2) + "\n")
         print("GitHub destinations configured. No repository created or published.")
+    elif args.command == "config-value":
+        print(config().get(args.field, ""))
     elif args.command == "assets":
         assets()
     elif args.command == "check-config":
