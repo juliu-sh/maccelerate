@@ -9,7 +9,20 @@ on:
   workflow_dispatch:
 
 jobs:
+  publication-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check public sources, history and release tooling
+        run: |
+          python3 diagnostics/test-public-boundary.py
+          python3 diagnostics/test-release.py
+          python3 dist/public_boundary.py --history
+          python3 dist/public_boundary.py --text RELEASE_NOTES_DRAFT.md
   build:
+    needs: publication-check
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4

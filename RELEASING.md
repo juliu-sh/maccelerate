@@ -5,6 +5,20 @@ Sparkle and the [Homebrew tap](https://github.com/juliu-sh/homebrew-tap).
 For a local source build, follow [README.md](README.md); Apple signing credentials
 are only needed for distribution.
 
+## Publication checks
+
+After cloning, run `./dist/install-publication-guard.sh` to enable this checkout's
+pre-push check. CI and release tools also check the complete public inventory,
+Git history, source archives and release notes for private credentials, local
+machine paths and internal publication metadata. Release binaries have debug path
+records removed before signing and are checked before packaging.
+
+Older nonsecret metadata is accepted only in the already-published ancestors of
+the initial documentation cleanup. New commits and all new archives are strict;
+`python3 dist/public_boundary.py --strict-history` also reports historical metadata.
+The guard is a check, not a guarantee against every kind of sensitive content.
+Review the exact files and release notes before uploading.
+
 ## Distribution setup
 
 Use a Developer ID Application certificate and a validated `notarytool` Keychain

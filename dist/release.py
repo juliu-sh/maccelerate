@@ -53,6 +53,7 @@ def assets():
     if not cfg.get("sparkle_account"):
         raise ValueError("Configure a Sparkle Keychain account in dist/release-config.local.json first.")
     public_boundary.audit_history(ROOT)
+    public_boundary.audit_text(ROOT / "RELEASE_NOTES_DRAFT.md")
     app = ROOT / "build/Maccelerate.app"
     public_boundary.audit_app(app)
     with (app / "Contents/Info.plist").open("rb") as stream:
@@ -166,6 +167,7 @@ def checked_candidate(version):
     run(ROOT / "build/sparkle-tools/sign_update", "--account", cfg["sparkle_account"], "--verify", out / data["dmg"], data["signature"])
     run("xcrun", "stapler", "validate", out / data["dmg"])
     public_boundary.audit_archive(out / f"Maccelerate-{version}-source.zip", f"Maccelerate-{version}/", ROOT)
+    public_boundary.audit_text(out / "release-notes.md")
     return out, data
 
 
@@ -178,12 +180,18 @@ def draft(version):
 
 def publish(version):
     out, data = checked_candidate(version)
-    # Check the draft asset itself before exposing it or changing the feed.
+    # Check the actual GitHub text and every public asset, including UI edits.
+    draft_body = json.loads(run("gh", "release", "view", f"v{version}", "--repo", data["repository"], "--json", "body"))["body"]
+    public_boundary.inspect_content("GitHub release notes", draft_body.encode())
+    # Check the draft assets before exposing them or changing the feed.
     check = out / "github-check"
     check.mkdir(exist_ok=True)
-    run("gh", "release", "download", f"v{version}", "--repo", data["repository"], "--pattern", data["dmg"], "--dir", check, "--clobber")
-    if sha(check / data["dmg"]) != data["sha256"]:
-        raise ValueError("GitHub asset does not match the tested DMG.")
+    for name in (data["dmg"], f"{data['dmg']}.sha256", f"Maccelerate-{version}-source.zip", "appcast.xml"):
+        run("gh", "release", "download", f"v{version}", "--repo", data["repository"], "--pattern", name, "--dir", check, "--clobber")
+        if sha(check / name) != data["files"][name]:
+            raise ValueError(f"GitHub asset differs from reviewed candidate: {name}")
+    public_boundary.audit_archive(check / f"Maccelerate-{version}-source.zip", f"Maccelerate-{version}/", ROOT)
+    public_boundary.audit_text(check / "appcast.xml")
     run("gh", "release", "edit", f"v{version}", "--repo", data["repository"], "--draft=false", "--latest")
     print("Release published. Deploy this appcast to the configured HTTPS feed, then update the tap:")
     print(out / "appcast.xml")

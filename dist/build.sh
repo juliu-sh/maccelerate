@@ -91,6 +91,13 @@ lipo -create \
   "${BUILD_DIR}/x86_64/${BUILD_CONFIG}/ISSCli" \
   -output "${BUILD_PATH}/ISSCli"
 
+# Remove Mach-O debug/object-file records before signing. SwiftPM otherwise
+# embeds the builder's home and checkout paths even in release executables.
+# This preserves executable code and exported symbols; dSYMs stay in build/.
+if [[ "${BUILD_CONFIG}" == "release" ]]; then
+  xcrun strip -S "${BUILD_PATH}/${PRODUCT_NAME}" "${BUILD_PATH}/ISSCli"
+fi
+
 echo ""
 echo "Bundling..."
 rm -rf "${APP_BUNDLE}"
@@ -144,6 +151,8 @@ GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 echo "Injecting git SHA: ${GIT_SHA}"
 /usr/libexec/PlistBuddy -c "Add :GitCommitHash string ${GIT_SHA}" "${APP_BUNDLE}/Contents/Info.plist" 2>/dev/null || \
 /usr/libexec/PlistBuddy -c "Set :GitCommitHash ${GIT_SHA}" "${APP_BUNDLE}/Contents/Info.plist"
+
+python3 dist/public_boundary.py --app "${APP_BUNDLE}"
 
 echo ""
 DEFAULT_SIGNING_IDENTITY="InstantSpaceSwitcher-27 Stable Local Code Signing"

@@ -1,13 +1,11 @@
-# Maccelerate 1.1.18 — Free release (build 29)
+# Maccelerate 1.1.19 — Free release (build 30)
 
 A free, MIT-licensed macOS menu bar app based on InstantSpaceSwitcher by jurplel.
 
 ## Changed
 
-- Start input processing and global shortcuts only after Accessibility and event-posting access are available.
-- Stop processing after a system/user tap disable instead of re-enabling it.
-- Cancel pending asynchronous gestures on permission loss and limit repeated timeout recovery.
-- Show the actual input connection status and require an app restart after input has been suspended.
+- Remove local build paths and debug/object-file records from the distributed executables.
+- Space switching and permission handling match version 1.1.18.
 
 ## Included
 

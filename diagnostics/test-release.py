@@ -92,6 +92,12 @@ class ReleaseSafetyTests(unittest.TestCase):
             release.assets()
         self.assertEqual(self.commands, [])
 
+    def test_internal_release_notes_stop_before_keychain_or_network_commands(self):
+        (self.root / "RELEASE_NOTES_DRAFT.md").write_text("The user " + "approved this build")
+        with self.assertRaisesRegex(ValueError, "Internal publication metadata"):
+            release.assets()
+        self.assertEqual(self.commands, [])
+
     def test_changed_bundle_version_requires_rebuild(self):
         info = dict(self.info, CFBundleVersion="24")
         (self.root / "Info.plist").write_bytes(plistlib.dumps(info))
