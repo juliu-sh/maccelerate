@@ -1,10 +1,10 @@
-# Maccelerate 1.1.18 — Free release candidate (build 29)
+# Maccelerate 1.1.18 — Free release (build 29)
 
 A free, MIT-licensed macOS menu bar app based on InstantSpaceSwitcher by jurplel.
 
 ## Status
 
-Pre-release candidate for a blocking permission-lifecycle defect. The prior 1.1.17 must not be published. Live verification of permission withdrawal and macOS 27 acceleration is required before release.
+Published on 30 September 2026 after the user confirmed the correction works and approved release. The earlier 1.1.16/1.1.17 drafts remain unpublished. The user reported no other unexpected behavior in their macOS 27 testing; exact build and hardware were not supplied.
 
 ## Changed
 
@@ -25,7 +25,7 @@ Pre-release candidate for a blocking permission-lifecycle defect. The prior 1.1.
 
 ## Compatibility status
 
-macOS 27 switching uses asynchronous phases and confirmation polling. macOS 26 and earlier retain the legacy event path. Live acceptance on the supported systems and a complete Sparkle update test remain release checks. Do not describe this candidate as publicly released until notarization and installation checks are complete.
+macOS 27 switching uses asynchronous phases and confirmation polling. macOS 26 and earlier retain the legacy event path. The local Sparkle update cycle and the user-reported macOS 27 correction test passed. Automated checks and user testing do not establish compatibility with every Mac or macOS build.
 
 ## Install
 

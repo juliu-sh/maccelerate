@@ -1,6 +1,6 @@
 # Releasing Maccelerate
 
-Maccelerate is prepared for an MIT open-source launch with public GitHub Releases, Sparkle updates, and an own Homebrew tap. The Free app and its source are publicly downloadable without payment or activation. Source and releases are not public until the launch is performed.
+Maccelerate is prepared for an MIT open-source launch with public GitHub Releases, Sparkle updates, and an own Homebrew tap. The Free app and its source are publicly downloadable without payment or activation. Free 1.1.18 (build 29) was published on 30 September 2026 after the user approved the live correction test and reported no other unexpected behavior in their macOS 27 testing.
 
 ## One-time setup
 
@@ -15,15 +15,15 @@ Maccelerate is prepared for an MIT open-source launch with public GitHub Release
 4. Serve the generated `appcast.xml` through the public repository at `https://raw.githubusercontent.com/juliu-sh/maccelerate/main/appcast.xml`. Publish the versioned DMG first, then commit the matching feed. The app reads this URL; `maccelerate.app` remains the website domain.
 5. Review `PRIVACY.md`, `LICENSE`, `LICENSES/`, `NOTICE`, and assets before launch.
 
-## Current release blocker
+## Resolved permission blocker
 
-Do not publish 1.1.17: withdrawing Accessibility access while the app runs was reported to block clicks and gestures. The pointer still moves. A restart restored input, but stopping the process alone was not verified by the user. The absence of acceleration on the second macOS 27 Mac is also not yet resolved by a live retest.
+The unpublished 1.1.16/1.1.17 candidates must remain unpublished: withdrawing Accessibility access while running could block clicks and gestures. Free 1.1.18 adds permission-gated tap creation, safe suspension after system/user disable, bounded timeout recovery, cancellation of pending input, and permission-aware shortcuts. On 30 September 2026, the user reported the correction works and explicitly approved release; they reported no other unexpected behavior in their macOS 27 testing. Exact macOS 27 build and hardware details were not supplied, so this is not a claim of complete platform coverage.
 
-The 1.1.18 candidate adds permission-gated tap creation, a fail-closed response to system/user disable, bounded timeout recovery, cancellation of pending input, and permission-aware shortcut registration. Isolated fault tests cannot prove that the live OS-level freeze is fixed. Re-test initial grant, app restart, acceleration and permission withdrawal on the affected systems before publishing. Keep old drafts blocked and the public appcast empty until that gate passes.
+The public release uses the exact notarized candidate built from commit `bdb28d4a7a5c7445bb97ed9e986acb682c853a62`. Later feed/documentation commits do not replace that build or its immutable assets. The source ZIP preserves the build-time source snapshot, including its then-pending release checklist.
 
 ## Prepare a candidate
 
-Increase the patch version and build number for every app change. The current candidate is **1.1.18, build 29**. Keep the bundle identifier stable for updates; it is currently `com.interversehq.Maccelerate`. Any initial move to a Jukes Studio ID must happen before the first public build, with a plan for existing preferences and permissions.
+Increase the patch version and build number for every app change. The current public release is **1.1.18, build 29**; use a new version and build for the next candidate. Keep the bundle identifier stable for updates; it is currently `com.interversehq.Maccelerate`. Any initial move to a Jukes Studio ID must happen before the first public build, with a plan for existing preferences and permissions.
 
 Finish the intended changes, run `bash diagnostics/test-swift.sh`, and commit the reviewed source. Then, from the public Free checkout:
 

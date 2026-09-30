@@ -36,7 +36,7 @@ Own builds use the separate bundle ID `com.interversehq.Maccelerate.source`, a l
 
 ## Official releases
 
-Official builds use Developer ID signing, notarization, GitHub Releases and an optional Homebrew tap. The app is free; no account, purchase, or license activation is required. Only official builds use the configured HTTPS update feed. See [RELEASING.md](RELEASING.md) for the release process. Downloads are available once the first release is published.
+Official builds use Developer ID signing, notarization, GitHub Releases and an optional Homebrew tap. The app is free; no account, purchase, or license activation is required. Only official builds use the configured HTTPS update feed. See [RELEASING.md](RELEASING.md) for the release process. Download [Free 1.1.18](https://github.com/juliu-sh/maccelerate/releases/tag/v1.1.18), or install via `brew install --cask juliu-sh/tap/maccelerate`. If input processing stops after permission changes, check access, then quit and reopen Maccelerate.
 
 ## License and credits
 
