@@ -265,7 +265,8 @@ int main(void) {
     assert(actual[0] == 2 && post_count == 3 && switch_count == 1);
     assert(phases[0] == 1 && phases[1] == 2 && phases[2] == 4);
     assert(times[1] - times[0] > .0099 && times[2] - times[1] > .0099);
-    assert(velocities[0] == 0 && velocities[1] == 0 && velocities[2] == 100);
+    assert(velocities[0] == 0 && velocities[1] == 0);
+    assert(velocities[2] == (iss_uses_release_horizontal_payload() ? 9999 : 100));
 
     reset();
     uint64_t id = relative(ISSDirectionRight);
@@ -445,7 +446,8 @@ int main(void) {
     reset(); auto_confirm = true;
     iss_set_gesture_speed(25);
     id = absolute(3); drain(); expect(id, ISSSwitchResultSuccess);
-    assert(velocities[2] == 50 && velocities[5] == 50);
+    const double custom_velocity = iss_uses_release_horizontal_payload() ? 500 : 50;
+    assert(velocities[2] == custom_velocity && velocities[5] == custom_velocity);
 
     // The CLI still waits for confirmation and returns the observed outcome.
     reset(); auto_confirm = true;

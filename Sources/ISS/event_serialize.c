@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <mach/mach_time.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -187,6 +188,35 @@ static bool iss_running_build_uses_instant_horizontal_payload(void) {
     cached_result = iss_build_version_uses_instant_horizontal_payload(version)
         ? 1 : 0;
     return cached_result == 1;
+}
+
+bool iss_uses_release_horizontal_payload(void) {
+    if (!iss_requires_event_augmentation()) return false;
+    static int cached_result = -1;
+    if (cached_result != -1) return cached_result == 1;
+    char build[32] = {0};
+    size_t size = sizeof(build);
+    if (sysctlbyname("kern.osversion", build, &size, NULL, 0) != 0) {
+        cached_result = 0;
+        return false;
+    }
+    build[sizeof(build) - 1] = '\0';
+    // Release numbering is not ordered numerically against the 26A5xxx betas.
+    // Keep the observed release behavior explicit; do not widen beta coverage.
+    cached_result = strcmp(build, "26A428") == 0;
+    return cached_result == 1;
+}
+
+double iss_horizontal_switch_velocity(double requested_velocity) {
+    if (!iss_requires_event_augmentation()) return requested_velocity;
+    if (iss_uses_release_horizontal_payload()) {
+        // PR #102's 9999 fling commits without the full-progress preview.
+        // Preserve preset differences instead of using a fixed fling for all.
+        // Bound before multiplication, well within the signed 16.16 range.
+        if (!isfinite(requested_velocity) || requested_velocity < 0.0) return 0.0;
+        return requested_velocity >= 999.9 ? 9999.0 : requested_velocity * 10.0;
+    }
+    return requested_velocity > 100.0 ? 100.0 : requested_velocity;
 }
 
 static uint8_t *iss_generate_iohid_payload(CGEventRef event, size_t *out_length) {

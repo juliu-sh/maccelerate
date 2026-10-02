@@ -273,14 +273,14 @@ static uint64_t async_submit(bool relative, unsigned int value, ISSSwitchSource 
         || source > ISSSwitchSourceCmdTab) {
         async_complete(request, ISSSwitchResultInvalidTarget); return id;
     }
-    // Preserve the synchronous multi-step velocity calculation, including
-    // custom velocities below the modern cap (the UI presets all hit it).
+    // Preserve the synchronous multi-step calculation before applying the
+    // build-specific horizontal velocity policy shared by both paths.
     if (!relative) {
         unsigned int current = request.snapshot.info.currentIndex;
         unsigned int steps = request.target > current ? request.target - current : current - request.target;
         if (steps) request.velocity *= steps;
     }
-    if (request.velocity > kMacOS27MaxGestureVelocity) request.velocity = kMacOS27MaxGestureVelocity;
+    request.velocity = iss_horizontal_switch_velocity(request.velocity);
     ISSAsyncRequest previous = asyncRequest;
     asyncRequest = request;
     if (asyncStep.active && asyncStep.nextPhase == kCGSGesturePhaseNone

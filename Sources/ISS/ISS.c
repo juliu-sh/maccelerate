@@ -894,9 +894,16 @@ static bool iss_post_dock_swipe_at(CGSGesturePhase phase, ISSDirection direction
     // Preserve the library's direction sign in the serialized macOS 27 path.
     // The original prototype inverted it, so a right request hit the left
     // boundary on build 26A5388g.
-    const double progress = iss_requires_event_augmentation()
+    double progress = iss_requires_event_augmentation()
                                 ? (isRight ? 0.000016 : -0.000016)
                                 : (isRight ? (double)FLT_TRUE_MIN : -(double)FLT_TRUE_MIN);
+    // On 26A428 near-zero progress skips the slide even at Fast/Faster speeds.
+    // Commit visible progress for those presets; reserve the zero-distance
+    // fling for Instant. Velocity is the request snapshot, so a preference
+    // change cannot mix two progress modes within an in-flight gesture.
+    if (iss_uses_release_horizontal_payload() && velocity < 9999.0) {
+        progress = isRight ? 1.0 : -1.0;
+    }
 
     // Velocity of gesture based on speed setting
     const double vel = isRight ? velocity : -velocity;
@@ -952,10 +959,7 @@ static bool iss_perform_switch_gesture(ISSDirection direction, double velocity) 
     // macOS 27 drops augmented phases posted back-to-back.
     const bool requiresAugmentation = iss_requires_event_augmentation();
     const useconds_t phaseDelay = requiresAugmentation ? 10000 : 0;
-    const double effectiveVelocity =
-        requiresAugmentation && velocity > kMacOS27MaxGestureVelocity
-            ? kMacOS27MaxGestureVelocity
-            : velocity;
+    const double effectiveVelocity = iss_horizontal_switch_velocity(velocity);
 
     if (!iss_post_dock_swipe(kCGSGesturePhaseBegan, direction,
                              effectiveVelocity)) {

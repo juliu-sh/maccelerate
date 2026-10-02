@@ -59,6 +59,17 @@ bool iss_product_version_requires_event_augmentation(const char *version);
  */
 bool iss_build_version_uses_instant_horizontal_payload(const char *version);
 
+/** The release-build velocity policy verified on macOS 27.0 / 26A428.
+ * Older beta and unverified builds retain their existing behavior.
+ */
+bool iss_uses_release_horizontal_payload(void);
+
+/** Translate a requested horizontal velocity to the current OS's range.
+ * macOS 13–26 is unchanged. On 26A428 the three preset velocities become
+ * 1000, 4000, and 9999; other macOS 27 builds retain the 100 cap.
+ */
+double iss_horizontal_switch_velocity(double requested_velocity);
+
 /**
  * @brief Returns true when the running OS is macOS 27 or later.
  *
