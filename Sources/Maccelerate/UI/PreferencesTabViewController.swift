@@ -8,6 +8,11 @@ final class PreferencesTabViewController: NSViewController {
   private let navigation = NSSegmentedControl(labels: ["Switching", "Shortcuts"],
                                              trackingMode: .selectOne, target: nil, action: nil)
   private let content = NSView()
+  private let permissionSurface = SettingsSurface()
+  private let permissionWarningTint = NSColor(name: nil) { appearance in
+    let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    return NSColor.systemRed.withAlphaComponent(dark ? 0.16 : 0.08)
+  }
   private let permissionLabel = SettingsDesign.text("", size: 11, color: .secondaryLabelColor)
   private let permissionButton = NSButton(title: "Open System Settings", target: nil, action: nil)
   private var activationObserver: NSObjectProtocol?
@@ -56,6 +61,10 @@ final class PreferencesTabViewController: NSViewController {
     versionLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
     let footer = SettingsDesign.stack([permissionLabel, NSView(), permissionButton, versionLabel],
                                       vertical: false, spacing: 12)
+    permissionSurface.radius = 0
+    permissionSurface.fillColor = .clear
+    permissionSurface.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(permissionSurface)
     view.addSubview(footer)
     let divider = NSBox()
     divider.boxType = .separator
@@ -72,6 +81,10 @@ final class PreferencesTabViewController: NSViewController {
       divider.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       divider.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       divider.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -12),
+      permissionSurface.topAnchor.constraint(equalTo: divider.bottomAnchor),
+      permissionSurface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      permissionSurface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      permissionSurface.bottomAnchor.constraint(equalTo: view.bottomAnchor),
       footer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 28),
       footer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -28),
       footer.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -12),
@@ -104,7 +117,9 @@ final class PreferencesTabViewController: NSViewController {
 
   private func refreshPermissionStatus() {
     let trusted = iss_has_event_access()
-    if iss_input_requires_restart() {
+    let requiresRestart = iss_input_requires_restart()
+    let connected = trusted && iss_is_active() && !requiresRestart
+    if requiresRestart {
       permissionLabel.stringValue = "Input stopped. Check access, then quit and reopen Maccelerate."
     } else if trusted && iss_is_active() {
       permissionLabel.stringValue = "Accessibility connected · Changes save automatically"
@@ -113,7 +128,11 @@ final class PreferencesTabViewController: NSViewController {
     } else {
       permissionLabel.stringValue = "Accessibility access is needed to switch Spaces."
     }
-    permissionButton.isHidden = trusted && iss_is_active()
+    // Draw the warning independently of window activation so it stays visible
+    // when macOS dims the controls of an inactive settings window.
+    permissionSurface.fillColor = connected ? .clear : permissionWarningTint
+    permissionLabel.textColor = connected ? .secondaryLabelColor : .labelColor
+    permissionButton.isHidden = connected
   }
 
   @objc private func openPermissions() {

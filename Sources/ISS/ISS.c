@@ -85,6 +85,8 @@ static bool swipeTracking = false;
 static bool swipeFired = false;
 // Drain only the interrupted horizontal sequence, never unrelated gestures.
 static bool interruptedHorizontalSwipe = false;
+static bool horizontalCompanionEnded = false;
+static bool horizontalCompanionTail = false;
 
 typedef struct {
     bool enabled;
@@ -436,9 +438,12 @@ static CGEventRef accelerate_physical_vertical_gesture(
 
 // Perform a swipe-override switch: get space info, compute target, switch,
 // and notify the handler with the target index.
+#include "trackpad_recovery.h"
+
 static void swipe_override_switch(ISSDirection dir) {
     if (iss_uses_async_switching()) {
-        iss_request_switch(dir, ISSSwitchSourceTrackpad, NULL);
+        if (iss_uses_release_horizontal_payload()) trackpad_submit(dir);
+        else iss_request_switch(dir, ISSSwitchSourceTrackpad, NULL);
         return;
     }
     ISSSpaceInfo info;
@@ -455,6 +460,21 @@ static void swipe_override_switch(ISSDirection dir) {
         set_prediction(info.displayID, target);
         if (switchCallback) { switchCallback(target); }
     }
+}
+
+static CGEventRef close_physical_gesture(CGEventTapProxy proxy, CGEventRef event) {
+    if (inputRequiresRestart || !iss_has_event_access()) {
+        iss_suspend_for_permission_change();
+        return event;
+    }
+    unsigned phase = (unsigned)CGEventGetIntegerValueField(event, kCGEventGesturePhase);
+    CGEventRef neutral = iss_copy_neutral_gesture_terminal(event, phase);
+    if (neutral) {
+        CGEventTapPostEvent(proxy, neutral);
+        CFRelease(neutral);
+    }
+    // An unknown payload must not forward its original nonzero fling.
+    return NULL;
 }
 
 static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
@@ -485,6 +505,7 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
             }
         }
         async_cancel(false);
+        if (iss_uses_release_horizontal_payload()) trackpad_reset();
         interruptedHorizontalSwipe = interruptedHorizontalSwipe || swipeTracking;
         swipeTracking = false;
         swipeFired = false;
@@ -544,11 +565,33 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
     CGSEventType eventType =
         (CGSEventType)CGEventGetIntegerValueField(event, kCGSEventTypeField);
 
+    const bool recoverPhysicalGesture = iss_uses_release_horizontal_payload();
+    if (recoverPhysicalGesture &&
+        (eventType == kCGSEventDockControl || eventType == kCGSEventGesture)) {
+        if (iss_is_neutral_gesture_terminal(event)) return event;
+        if (!iss_has_event_access()) {
+            iss_suspend_for_permission_change();
+            return event;
+        }
+    }
+
     // Pass through synthetic events (non-HID source). Real gesture events
     // from the trackpad have sourcePid == 0 (HID kernel).
     if (eventType == kCGSEventDockControl || eventType == kCGSEventGesture) {
         pid_t sourcePid = (pid_t)CGEventGetIntegerValueField(event, kCGEventSourceUnixProcessID);
         if (sourcePid != 0) return event;
+    }
+
+    if (recoverPhysicalGesture &&
+        (eventType == kCGSEventDockControl || eventType == kCGSEventGesture)) {
+        int64_t terminalPhase = CGEventGetIntegerValueField(event, kCGEventGesturePhase);
+        if (trackpadRecovery.anchor && (terminalPhase == 4 || terminalPhase == 8)) {
+            CGEventTimestamp beginTime = CGEventGetTimestamp(trackpadRecovery.anchor);
+            CGEventTimestamp eventTime = CGEventGetTimestamp(event);
+            if (beginTime && eventTime && eventTime < beginTime) return NULL;
+        }
+        trackpad_expire_if_due();
+        if (inputRequiresRestart) return event;
     }
 
     if (eventType == kCGSEventDockControl) {
@@ -572,6 +615,11 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
             } else {
                 if (phase == kCGSGesturePhaseEnded || phase == kCGSGesturePhaseCancelled) {
                     interruptedHorizontalSwipe = false;
+                    if (recoverPhysicalGesture) {
+                        trackpad_finish_physical();
+                        horizontalCompanionTail = !horizontalCompanionEnded;
+                        return close_physical_gesture(proxy, event);
+                    }
                 }
                 return NULL;
             }
@@ -579,13 +627,29 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
 
         switch (phase) {
         case kCGSGesturePhaseBegan:
-            if (iss_is_expose_active()) return event;
+            if (iss_is_expose_active()) {
+                if (recoverPhysicalGesture) {
+                    uint64_t oldRequest = trackpadRecovery.requestID;
+                    trackpad_reset();
+                    swipeTracking = false; swipeFired = false;
+                    horizontalCompanionTail = false;
+                    async_cancel_trackpad_request(oldRequest);
+                }
+                return event;
+            }
+            if (recoverPhysicalGesture && !trackpad_begin(event)) {
+                swipeTracking = false; swipeFired = false;
+                return event;
+            }
+            horizontalCompanionEnded = false;
+            horizontalCompanionTail = false;
             swipeTracking = true;
             swipeFired = false;
             return NULL;
 
         case kCGSGesturePhaseChanged: {
             if (!swipeTracking) return event;
+            if (recoverPhysicalGesture) trackpad_touch();
             if (!swipeFired) {
                 double progress =
                     CGEventGetDoubleValueField(event, kCGEventGestureSwipeProgress);
@@ -613,12 +677,25 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
             }
             swipeTracking = false;
             swipeFired = false;
+            if (recoverPhysicalGesture) {
+                interruptedHorizontalSwipe = false;
+                trackpad_finish_physical();
+                horizontalCompanionTail = !horizontalCompanionEnded;
+                return close_physical_gesture(proxy, event);
+            }
             return NULL;
         }
 
         case kCGSGesturePhaseCancelled:
+            if (recoverPhysicalGesture && !swipeTracking) return event;
             swipeTracking = false;
             swipeFired = false;
+            if (recoverPhysicalGesture) {
+                interruptedHorizontalSwipe = false;
+                trackpad_finish_physical();
+                horizontalCompanionTail = !horizontalCompanionEnded;
+                return close_physical_gesture(proxy, event);
+            }
             return NULL;
 
         default:
@@ -626,8 +703,25 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
         }
     }
 
-    // Suppress companion gesture events during active swipe tracking
-    if (eventType == kCGSEventGesture && swipeTracking) {
+    if (recoverPhysicalGesture && eventType == kCGSEventGesture &&
+        !swipeTracking && !trackpadRecovery.anchor &&
+        CGEventGetIntegerValueField(event, kCGEventGesturePhase) == kCGSGesturePhaseBegan) {
+        // A fresh companion stream is unrelated to the missing previous tail.
+        horizontalCompanionTail = false;
+    }
+    if (recoverPhysicalGesture && eventType == kCGSEventGesture &&
+        (swipeTracking || horizontalCompanionTail)) {
+        int64_t phase = CGEventGetIntegerValueField(event, kCGEventGesturePhase);
+        if (phase == kCGSGesturePhaseEnded || phase == kCGSGesturePhaseCancelled) {
+            if (horizontalCompanionEnded) return NULL;
+            horizontalCompanionEnded = true;
+            horizontalCompanionTail = false;
+            return close_physical_gesture(proxy, event);
+        }
+    }
+    // Suppress nonterminal companion events only while tracking this swipe.
+    if (eventType == kCGSEventGesture && (swipeTracking ||
+        (recoverPhysicalGesture && trackpadRecovery.anchor && interruptedHorizontalSwipe))) {
         return NULL;
     }
 
@@ -1123,10 +1217,13 @@ bool iss_init(void) {
 void iss_destroy(void) {
     // Disconnect input before running cancellation callbacks.
     if (globalTap) CGEventTapEnable(globalTap, false);
+    trackpad_reset();
     async_shutdown();
     swipeTracking = false;
     swipeFired = false;
     interruptedHorizontalSwipe = false;
+    horizontalCompanionEnded = false;
+    horizontalCompanionTail = false;
     cmdTabPending = false;
     lastCmdTabKeyDown = 0;
     lastCmdTabRelease = 0;
@@ -1469,12 +1566,15 @@ uint64_t iss_request_follow_cmd_tab_application(pid_t pid,
 }
 
 void iss_set_swipe_override(bool enabled) {
+    if (!enabled) trackpad_reset();
     if (!enabled) async_cancel(true);
     swipeOverrideEnabled = enabled;
     if (!enabled) {
         swipeTracking = false;
         swipeFired = false;
         interruptedHorizontalSwipe = false;
+        horizontalCompanionEnded = false;
+        horizontalCompanionTail = false;
     }
 }
 

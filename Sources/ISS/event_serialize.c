@@ -366,6 +366,114 @@ CGEventRef iss_prepare_dock_swipe_event_for_current_os(CGEventRef event) {
     return CGEventCreateCopy(event);
 }
 
+static const int64_t kISSNeutralTerminalMarker = INT64_C(0x4d61636354524d31);
+
+bool iss_is_neutral_gesture_terminal(CGEventRef event) {
+    return event && CGEventGetIntegerValueField(event, kCGEventSourceUserData)
+        == kISSNeutralTerminalMarker;
+}
+
+static bool iss_clear_terminal_payload(uint8_t *bytes, size_t length,
+                                      unsigned int phase, uint64_t timestamp) {
+    if (length < sizeof(IOHIDSystemQueueElementHeader)) return false;
+    IOHIDSystemQueueElementHeader header;
+    memcpy(&header, bytes, sizeof(header));
+    if (header.attribute_length > length - sizeof(header)) return false;
+    size_t offset = sizeof(header) + header.attribute_length;
+    bool found_fluid = false;
+    for (uint32_t i = 0; i < header.event_count; i++) {
+        if (length - offset < sizeof(IOHIDEventBase)) return false;
+        IOHIDEventBase base;
+        memcpy(&base, bytes + offset, sizeof(base));
+        if (base.size < sizeof(base) || base.size > length - offset) return false;
+        if (base.type == kIOHIDEventTypeFluidTouchGesture) {
+            if (base.size < sizeof(IOHIDFluidTouchGestureData)) return false;
+            IOHIDFluidTouchGestureData fluid;
+            memcpy(&fluid, bytes + offset, sizeof(fluid));
+            fluid.base.options = (fluid.base.options & 0x00ffffffu) | (phase << 24);
+            fluid.position_x = fluid.position_y = fluid.position_z = 0;
+            fluid.swipe_progress = 0;
+            memcpy(bytes + offset, &fluid, sizeof(fluid));
+            found_fluid = true;
+        } else if (base.type == kIOHIDEventTypeVelocity) {
+            if (base.size < sizeof(IOHIDVelocityEventData)) return false;
+            IOHIDVelocityEventData velocity;
+            memcpy(&velocity, bytes + offset, sizeof(velocity));
+            velocity.velocity_x = velocity.velocity_y = velocity.velocity_z = 0;
+            memcpy(bytes + offset, &velocity, sizeof(velocity));
+        }
+        offset += base.size;
+    }
+    if (!found_fluid || offset != length) return false;
+    header.timestamp = timestamp;
+    memcpy(bytes, &header, sizeof(header));
+    return true;
+}
+
+CGEventRef iss_copy_neutral_gesture_terminal(CGEventRef event, unsigned int phase) {
+    if (!event || (phase != 4 && phase != 8)) return NULL;
+    CGEventRef copy = CGEventCreateCopy(event);
+    if (!copy) return NULL;
+    if (CGEventGetIntegerValueField(copy, kCGEventGesturePhase) != phase) {
+        // CGEvent timestamps are in nanoseconds, not unscaled Mach ticks.
+        mach_timebase_info_data_t timebase;
+        if (mach_timebase_info(&timebase) != KERN_SUCCESS || !timebase.denom) {
+            CFRelease(copy); return NULL;
+        }
+        uint64_t ticks = mach_absolute_time();
+        uint64_t nanoseconds = (ticks / timebase.denom) * timebase.numer +
+            ((ticks % timebase.denom) * timebase.numer) / timebase.denom;
+        CGEventSetTimestamp(copy, nanoseconds);
+    }
+    CGEventSetIntegerValueField(copy, kCGEventGesturePhase, phase);
+    CGEventSetIntegerValueField(copy, (CGEventField)134, phase);
+    const CGEventField fields[] = {(CGEventField)124, (CGEventField)125,
+        (CGEventField)126, (CGEventField)129, (CGEventField)130};
+    for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++)
+        CGEventSetDoubleValueField(copy, fields[i], 0);
+    uint64_t timestamp = CGEventGetTimestamp(copy);
+    CFDataRef serialized = CGEventCreateData(NULL, copy);
+    CFRelease(copy);
+    if (!serialized) return NULL;
+    CFMutableDataRef data = CFDataCreateMutableCopy(NULL, 0, serialized);
+    CFRelease(serialized);
+    if (!data) return NULL;
+    uint8_t *bytes = CFDataGetMutableBytePtr(data);
+    size_t length = (size_t)CFDataGetLength(data);
+    bool valid = length >= 4 && memcmp(bytes, "\0\0\0\2", 4) == 0;
+    size_t offset = 4;
+    bool found_payload = false;
+    while (valid && offset < length) {
+        if (length - offset < 4) { valid = false; break; }
+        uint16_t count = iss_read_be16(bytes + offset);
+        uint16_t tag = iss_read_be16(bytes + offset + 2);
+        unsigned type = tag >> 14;
+        if (!count || type == 2) { valid = false; break; }
+        size_t size = type == 0 ? (count == 1 ? 8 : ((size_t)count + 3) & ~(size_t)3)
+                               : (size_t)count * 4;
+        offset += 4;
+        if (size > length - offset) { valid = false; break; }
+        if ((tag & 0x3fff) == kCGEventRawIOHIDPayloadField) {
+            found_payload = true;
+            valid = type == 0 && count != 1 &&
+                iss_clear_terminal_payload(bytes + offset, count, phase, timestamp);
+        }
+        offset += size;
+    }
+    CGEventRef result = valid ? CGEventCreateFromData(NULL, data) : NULL;
+    CFRelease(data);
+    if (result && !found_payload &&
+        CGEventGetIntegerValueField(result, (CGEventField)55) == 30 &&
+        iss_requires_event_augmentation()) {
+        CGEventRef augmented = iss_augment_dock_swipe_event(result);
+        CFRelease(result);
+        result = augmented;
+    }
+    // CGEventCreateFromData does not retain a pre-reconstruction user marker.
+    if (result) CGEventSetIntegerValueField(result, kCGEventSourceUserData, kISSNeutralTerminalMarker);
+    return result;
+}
+
 CGEventRef iss_accelerate_vertical_dock_swipe_event(
     CGEventRef event, double multiplier, double terminal_velocity) {
     if (!event) return NULL;

@@ -7,6 +7,9 @@ bash diagnostics/test-gesture-recovery.sh
 bash diagnostics/test-async-switch.sh
 bash diagnostics/test-compatibility.sh
 bash diagnostics/test-release-horizontal.sh
+bash diagnostics/test-trackpad-payload.sh
+bash diagnostics/test-trackpad-terminal.sh
+bash diagnostics/test-trackpad-recovery.sh
 
 # Keep Swift/Clang module caches in a writable location on restricted Macs.
 export CLANG_MODULE_CACHE_PATH="${TMPDIR:-/tmp}/maccelerate-module-cache"

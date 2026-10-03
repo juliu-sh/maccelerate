@@ -18,3 +18,13 @@ companion-event posting, or gesture-termination changes. The upstream MIT
 license remains in `LICENSES/InstantSpaceSwitcher-MIT.txt`.
 
 Software updates use [Sparkle](https://sparkle-project.org/), version 2.10.0. Its complete license, including bundled component notices, is preserved in [LICENSES/Sparkle.txt](LICENSES/Sparkle.txt).
+
+The macOS 27 build 26A428 trackpad cleanup is informed by the neutral physical
+terminal approach in [InstantSpaceSwitcher PR #95](https://github.com/jurplel/InstantSpaceSwitcher/pull/95),
+by SimpleWood217, inspected at `ea59bcd079f875e41fb00b1ae79f38c3e3d22b0e`.
+Maccelerate implements its own payload validation, request-result handling and
+bounded recovery; it does not import that PR's direction or pairing changes.
+The post-deserialization marker placement is also informed by
+[PR #104](https://github.com/jurplel/InstantSpaceSwitcher/pull/104).
+Only newly introduced neutral cleanup events carry this marker. The original
+MIT license remains in `LICENSES/InstantSpaceSwitcher-MIT.txt`.

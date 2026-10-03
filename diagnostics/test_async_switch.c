@@ -6,12 +6,15 @@
 #include <unistd.h>
 #include <time.h>
 #include <dlfcn.h>
+#include "../Sources/ISS/event_serialize.h"
 
 static double clock_now = 100;
+static double wall_clock_offset;
 static unsigned sleeps, nested_runs, post_count;
+static unsigned cleanup_posts;
 static int actual[2] = {1, 0}, cursor_display;
 static int count = 5;
-static bool missing, reordered, overview, auto_confirm;
+static bool missing, reordered, overview, auto_confirm, duplicate_space;
 static int fail_create_after = -1;
 static int cmdtab_pid, cmdtab_destination = 13;
 static bool cmdtab_ambiguous;
@@ -25,6 +28,7 @@ static CGError fixture_at_point(CGPoint point, uint32_t max, CGDirectDisplayID *
     (void)point; (void)max; *display = cursor_display + 1; *n = 1; return kCGErrorSuccess;
 }
 static CFUUIDRef fixture_uuid(CGDirectDisplayID display) {
+    if (display > 2) return CFUUIDCreateFromString(NULL, CFSTR("00000000-0000-0000-0000-000000000099"));
     return CFUUIDCreateFromString(NULL, display == 1 ? CFSTR("00000000-0000-0000-0000-000000000001") : CFSTR("00000000-0000-0000-0000-000000000002"));
 }
 static CFArrayRef fixture_windows(CGWindowListOption option, CGWindowID window) {
@@ -63,6 +67,13 @@ static CGEventRef fixture_create(CGEventSourceRef source) {
     return event;
 }
 static void capture_post(CGEventTapLocation location, CGEventRef event) {
+    if (iss_is_neutral_gesture_terminal(event)) {
+        assert(CGEventGetDoubleValueField(event, (CGEventField)124) == 0);
+        assert(CGEventGetDoubleValueField(event, (CGEventField)129) == 0);
+        assert(CGEventGetDoubleValueField(event, (CGEventField)130) == 0);
+        cleanup_posts++;
+        return;
+    }
     (void)location; assert(post_count < 256);
     phases[post_count] = (unsigned)CGEventGetIntegerValueField(event, (CGEventField)132);
     times[post_count] = clock_now;
@@ -77,7 +88,7 @@ static int fixture_sleep(useconds_t duration) { sleeps++; clock_now += duration 
 static CFRunLoopRunResult fixture_run(CFRunLoopMode mode, CFTimeInterval seconds, Boolean once) {
     (void)mode; (void)once; nested_runs++; clock_now += seconds; return kCFRunLoopRunTimedOut;
 }
-static CFAbsoluteTime fixture_now(void) { return clock_now; }
+static CFAbsoluteTime fixture_now(void) { return clock_now + wall_clock_offset; }
 static int fixture_clock(clockid_t clock, struct timespec *value) {
     (void)clock; value->tv_sec = (time_t)clock_now; value->tv_nsec = (long)((clock_now - value->tv_sec) * 1e9); return 0;
 }
@@ -122,7 +133,7 @@ static CFArrayRef fixture_displays(int32_t connection, CFStringRef display) {
     for (int d = 0; d < 2; d++) {
         CFMutableArrayRef spaces = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
         for (int i = 0; i < count; i++) {
-            int64_t id = 10 + 100 * d + i + (reordered && i == 4 ? 1000 : 0);
+            int64_t id = 10 + 100 * d + (duplicate_space ? 0 : i) + (reordered && i == 4 ? 1000 : 0);
             CFNumberRef num = CFNumberCreate(NULL, kCFNumberSInt64Type, &id);
             const void *key = CFSTR("id64");
             CFDictionaryRef space = CFDictionaryCreate(NULL, &key, (const void **)&num, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
@@ -131,8 +142,8 @@ static CFArrayRef fixture_displays(int32_t connection, CFStringRef display) {
         CFUUIDRef uuid = fixture_uuid(d + 1);
         CFStringRef name = CFUUIDCreateString(NULL, uuid); CFRelease(uuid);
         const void *keys[] = {CFSTR("Display Identifier"), CFSTR("Spaces"), CFSTR("Current Space")};
-        const void *values[] = {name, spaces, CFArrayGetValueAtIndex(spaces, actual[d] < count ? actual[d] : 0)};
-        CFDictionaryRef entry = CFDictionaryCreate(NULL, keys, values, 3, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        const void *values[] = {name, spaces, count ? CFArrayGetValueAtIndex(spaces, actual[d] < count ? actual[d] : 0) : NULL};
+        CFDictionaryRef entry = CFDictionaryCreate(NULL, keys, values, count ? 3 : 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
         CFArrayAppendValue(result, entry); CFRelease(entry); CFRelease(name); CFRelease(spaces);
     }
     return result;
@@ -236,13 +247,15 @@ static void drain(void) {
     assert(sleeps == 0 && nested_runs == 0);
 }
 static void reset(void) {
+    wall_clock_offset = 0;
     inputRequiresRestart = false;
     fixture_access = true;
     iss_destroy();
     assert(!asyncTimer && !async_busy());
     post_count = sleeps = nested_runs = switch_count = completion_count = 0;
+    cleanup_posts = 0;
     actual[0] = 1; actual[1] = 0; cursor_display = 0; count = 5;
-    missing = reordered = overview = auto_confirm = false;
+    missing = reordered = overview = auto_confirm = duplicate_space = false;
     fail_create_after = -1; cmdtab_pid = 0; cmdtab_destination = 13; cmdtab_ambiguous = false;
     iss_set_gesture_speed(1000);
     iss_set_switch_callback(switched);

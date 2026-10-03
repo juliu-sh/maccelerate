@@ -2,11 +2,18 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "../Sources/ISS/event_serialize.h"
 
 static unsigned posted_events;
+static unsigned cleanup_events;
 static CGEventRef last_posted;
 static void capture(CGEventRef event) {
-    posted_events++;
+    if (iss_is_neutral_gesture_terminal(event)) {
+        assert(CGEventGetDoubleValueField(event, (CGEventField)124) == 0);
+        assert(CGEventGetDoubleValueField(event, (CGEventField)129) == 0);
+        assert(CGEventGetDoubleValueField(event, (CGEventField)130) == 0);
+        cleanup_events++;
+    } else posted_events++;
     if (last_posted) CFRelease(last_posted);
     last_posted = CGEventCreateCopy(event);
     assert(last_posted);
@@ -46,11 +53,11 @@ static CGEventRef deliver(CGEventRef event) {
 
 static void assert_unchanged(CGEventRef event) {
     CFDataRef before = CGEventCreateData(NULL, event);
-    const unsigned posts_before = posted_events;
+    const unsigned posts_before = posted_events + cleanup_events;
     assert(deliver(event) == event);
     CFDataRef after = CGEventCreateData(NULL, event);
     assert(before && after && CFEqual(before, after));
-    assert(posted_events == posts_before);
+    assert(posted_events + cleanup_events == posts_before);
     CFRelease(before);
     CFRelease(after);
 }

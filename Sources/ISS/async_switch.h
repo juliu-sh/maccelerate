@@ -166,6 +166,10 @@ static void async_cancel(bool trackpadOnly) {
     }
     async_finish(ISSSwitchResultCancelled);
 }
+static void async_cancel_trackpad_request(uint64_t id) {
+    if (id && asyncRequest.id == id && asyncRequest.source == ISSSwitchSourceTrackpad)
+        async_cancel(true);
+}
 static void async_shutdown(void) {
     async_disarm();
     async_clear_step();
@@ -246,6 +250,8 @@ static void async_tick(void) {
     if (!iss_post_dock_swipe_at(kCGSGesturePhaseBegan, asyncStep.direction, asyncStep.velocity, &asyncStep.snapshot.location)) {
         async_clear_step(); async_finish(ISSSwitchResultPostFailed); return;
     }
+    if (asyncRequest.source == ISSSwitchSourceTrackpad)
+        trackpad_request_did_post(asyncRequest.id);
     asyncStep.nextPhase = kCGSGesturePhaseChanged;
     async_schedule(0.01);
 }
@@ -271,6 +277,9 @@ static uint64_t async_submit(bool relative, unsigned int value, ISSSwitchSource 
     request.target = relative ? (value == ISSDirectionLeft ? base - 1 : base + 1) : value;
     if (request.target >= request.snapshot.info.spaceCount || (relative && value > ISSDirectionRight)
         || source > ISSSwitchSourceCmdTab) {
+        if (source == ISSSwitchSourceTrackpad && relative && value <= ISSDirectionRight &&
+            request.target >= request.snapshot.info.spaceCount)
+            trackpad_note_boundary(id);
         async_complete(request, ISSSwitchResultInvalidTarget); return id;
     }
     // Preserve the synchronous multi-step calculation before applying the

@@ -70,6 +70,14 @@ bool iss_uses_release_horizontal_payload(void);
  */
 double iss_horizontal_switch_velocity(double requested_velocity);
 
+/** Copy a consumed physical terminal, neutralizing both outer fields and every
+ * existing field-4205 payload in place. Preserves unrelated HID metadata.
+ * Phase must be Ended (4) or Cancelled (8). Malformed payloads fail closed.
+ * The retained result is marked after reconstruction for safe cleanup posting.
+ */
+CGEventRef iss_copy_neutral_gesture_terminal(CGEventRef event, unsigned int phase);
+bool iss_is_neutral_gesture_terminal(CGEventRef event);
+
 /**
  * @brief Returns true when the running OS is macOS 27 or later.
  *
