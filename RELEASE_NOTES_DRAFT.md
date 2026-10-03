@@ -1,28 +1,25 @@
-# Maccelerate 1.1.19 — Free release (build 30)
+# Maccelerate 1.1.20 — Free release (build 31)
 
-A free, MIT-licensed macOS menu bar app based on InstantSpaceSwitcher by jurplel.
+Maccelerate is a free, MIT-licensed macOS menu bar app based on InstantSpaceSwitcher by jurplel.
 
-## Changed
+## Changes
 
-- Remove local build paths and debug/object-file records from the distributed executables.
-- Space switching and permission handling match version 1.1.18.
+- Restore distinct Fast, Faster and Instant Space-switching presets on macOS 27.0 build 26A428.
+- Add neutral trackpad gesture completion and recovery after one second of missing gesture activity on that build.
+- Handle rejected and interrupted trackpad switch requests without repeatedly submitting the same swipe.
+- Make missing or stopped Accessibility access easier to see in the settings window, including when the window is inactive.
+- Remove local build paths and debug/object-file records from distributed executables.
 
-## Included
+## Compatibility
 
-- Fast Space switching, configurable shortcuts, and Fast/Faster/Instant presets.
-- Trackpad override, experimental Mission Control/App Exposé acceleration, and optional Cmd-Tab transition acceleration.
-- Native settings for switching and shortcuts; no account or activation required.
-- Universal app for Apple Silicon and Intel; deployment target macOS 13.
-- Sparkle update controls; automatic checks off by default.
-- Included ISSCli, MIT notices and complete Sparkle third-party licenses inside the app.
-- Clean drag-and-drop installer with just Maccelerate and the Applications shortcut.
+The updated speed and trackpad recovery behavior is currently limited to macOS 27.0 build 26A428. Other macOS 27 builds retain their existing behavior. macOS 26 and earlier retain the existing switching path.
 
-## Compatibility status
+Automated checks cover gesture completion, interrupted requests, recovery timing, malformed payloads and the macOS 26 reference event sequence. Full live validation across multiple displays, full-screen Spaces and rapid gesture sequences remains incomplete. These changes do not establish that every intermittent trackpad failure is resolved.
 
-macOS 27 switching uses asynchronous phases and confirmation polling. macOS 26 and earlier retain the legacy event path. Some features use undocumented macOS behavior; compatibility can vary between system versions.
+The app uses some undocumented macOS behavior, so compatibility can vary between system builds. If the settings window reports that input has stopped or access is unavailable, check Accessibility access, then quit and reopen Maccelerate.
 
-## Install
+## Installation
 
-Open the official DMG, drag Maccelerate to Applications, and grant Accessibility and, if requested, Input Monitoring permission. Website, GitHub Releases and the Homebrew Cask use the same official DMG.
+Download the signed and notarized universal DMG for Apple Silicon and Intel, open it and drag Maccelerate to Applications. Minimum system version: macOS 13. Grant Accessibility and, if requested, Input Monitoring access.
 
-See [PRIVACY.md](PRIVACY.md), [NOTICE](NOTICE), and [CREDITS.md](CREDITS.md).
+Existing installations can use **Check for Updates**. Automatic update checks remain off by default. The app includes ISSCli and the Maccelerate, InstantSpaceSwitcher and Sparkle license notices.
