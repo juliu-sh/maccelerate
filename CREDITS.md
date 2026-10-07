@@ -8,7 +8,7 @@ The Maccelerate icon was developed from Imagegen-generated design concepts; the 
 
 The original project is independent of Maccelerate. Downloads from jurplel's Homebrew tap and GitHub releases install InstantSpaceSwitcher, not Maccelerate.
 
-The horizontal velocity policy for macOS 27.0 build 26A428 uses the 9999
+The horizontal velocity policy for macOS 27 and later uses the 9999
 terminal-velocity / near-zero-progress finding from
 [InstantSpaceSwitcher PR #102](https://github.com/jurplel/InstantSpaceSwitcher/pull/102),
 commit `734173730fd962299ea7da1175904656c4dd82df`, by markokovac16 and
@@ -19,7 +19,7 @@ license remains in `LICENSES/InstantSpaceSwitcher-MIT.txt`.
 
 Software updates use [Sparkle](https://sparkle-project.org/), version 2.10.0. Its complete license, including bundled component notices, is preserved in [LICENSES/Sparkle.txt](LICENSES/Sparkle.txt).
 
-The macOS 27 build 26A428 trackpad cleanup is informed by the neutral physical
+The macOS 27 and later trackpad cleanup is informed by the neutral physical
 terminal approach in [InstantSpaceSwitcher PR #95](https://github.com/jurplel/InstantSpaceSwitcher/pull/95),
 by SimpleWood217, inspected at `ea59bcd079f875e41fb00b1ae79f38c3e3d22b0e`.
 Maccelerate implements its own payload validation, request-result handling and

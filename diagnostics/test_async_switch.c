@@ -21,6 +21,7 @@ static bool cmdtab_ambiguous;
 static CGPoint locations[256];
 static unsigned phases[256];
 static double times[256], velocities[256], progress_values[256];
+static void (*inspect_posted_event)(CGEventRef event);
 static CFArrayRef fixture_displays(int32_t connection, CFStringRef display);
 static int32_t fixture_connection(void) { return 1; }
 static uint64_t fixture_active(int32_t connection) { (void)connection; return (uint64_t)actual[0] + 10; }
@@ -75,6 +76,7 @@ static void capture_post(CGEventTapLocation location, CGEventRef event) {
         return;
     }
     (void)location; assert(post_count < 256);
+    if (inspect_posted_event) inspect_posted_event(event);
     phases[post_count] = (unsigned)CGEventGetIntegerValueField(event, (CGEventField)132);
     times[post_count] = clock_now;
     velocities[post_count] = CGEventGetDoubleValueField(event, (CGEventField)129);
@@ -279,7 +281,7 @@ int main(void) {
     assert(phases[0] == 1 && phases[1] == 2 && phases[2] == 4);
     assert(times[1] - times[0] > .0099 && times[2] - times[1] > .0099);
     assert(velocities[0] == 0 && velocities[1] == 0);
-    assert(velocities[2] == (iss_uses_release_horizontal_payload() ? 9999 : 100));
+    assert(velocities[2] == (iss_uses_modern_horizontal_switching() ? 9999 : 100));
 
     reset();
     uint64_t id = relative(ISSDirectionRight);
@@ -459,7 +461,7 @@ int main(void) {
     reset(); auto_confirm = true;
     iss_set_gesture_speed(25);
     id = absolute(3); drain(); expect(id, ISSSwitchResultSuccess);
-    const double custom_velocity = iss_uses_release_horizontal_payload() ? 500 : 50;
+    const double custom_velocity = iss_uses_modern_horizontal_switching() ? 500 : 50;
     assert(velocities[2] == custom_velocity && velocities[5] == custom_velocity);
 
     // The CLI still waits for confirmation and returns the observed outcome.

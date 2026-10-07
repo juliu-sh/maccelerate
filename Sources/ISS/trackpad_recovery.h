@@ -1,4 +1,4 @@
-// Private main-runloop state for the verified macOS 27 release path.
+// Private main-runloop state for macOS 27 and later.
 // The legacy callback keeps its original event trace.
 typedef enum {
     ISSTrackpadRequestNone,

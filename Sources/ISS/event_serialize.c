@@ -54,7 +54,6 @@ static const uint32_t kIOHIDEventTypeVelocity = 9;
 static const uint32_t kIOHIDEventTypeFluidTouchGesture = 23;
 static const uint16_t kIOHIDGestureFlavorDockPrimary = 3;
 static const uint16_t kCGEventRawIOHIDPayloadField = 4205;
-static const double kUpdatedHorizontalVelocity = 400.0;
 
 static const CGEventField kCGEventGestureSwipeProgress = (CGEventField)124;
 static const CGEventField kCGEventGestureSwipePositionY = (CGEventField)126;
@@ -135,88 +134,18 @@ static int32_t iss_double_to_fixed1616(double val) {
     return fixed;
 }
 
-bool iss_build_version_uses_instant_horizontal_payload(const char *version) {
-    if (!version || !isdigit((unsigned char)version[0])) return false;
-
-    errno = 0;
-    char *cursor = NULL;
-    const long kernel_major = strtol(version, &cursor, 10);
-    if (errno != 0 || cursor == version || kernel_major < 1 ||
-        kernel_major > INT_MAX || !isupper((unsigned char)*cursor)) {
-        return false;
-    }
-
-    const char train = *cursor++;
-    if (!isdigit((unsigned char)*cursor)) return false;
-    errno = 0;
-    char *build_end = NULL;
-    const long build_number = strtol(cursor, &build_end, 10);
-    if (errno != 0 || build_end == cursor || build_number < 0 ||
-        build_number > INT_MAX) {
-        return false;
-    }
-
-    char suffix = '\0';
-    if (*build_end != '\0') {
-        if (!islower((unsigned char)*build_end) || build_end[1] != '\0') {
-            return false;
-        }
-        suffix = *build_end;
-    }
-
-    if (kernel_major != 26) return kernel_major > 26;
-    if (train != 'A') return train > 'A';
-    if (build_number != 5406) return build_number > 5406;
-    return suffix >= 'e';
-}
-
-static bool iss_running_build_uses_instant_horizontal_payload(void) {
-    const char *force_override = getenv(
-        "ISS_FORCE_INSTANT_HORIZONTAL_PAYLOAD");
-    if (force_override) return strcmp(force_override, "1") == 0;
-
-    static int cached_result = -1;
-    if (cached_result != -1) return cached_result == 1;
-
-    char version[32] = {0};
-    size_t size = sizeof(version);
-    if (sysctlbyname("kern.osversion", version, &size, NULL, 0) != 0) {
-        cached_result = 0;
-        return false;
-    }
-    version[sizeof(version) - 1] = '\0';
-    cached_result = iss_build_version_uses_instant_horizontal_payload(version)
-        ? 1 : 0;
-    return cached_result == 1;
-}
-
-bool iss_uses_release_horizontal_payload(void) {
-    if (!iss_requires_event_augmentation()) return false;
-    static int cached_result = -1;
-    if (cached_result != -1) return cached_result == 1;
-    char build[32] = {0};
-    size_t size = sizeof(build);
-    if (sysctlbyname("kern.osversion", build, &size, NULL, 0) != 0) {
-        cached_result = 0;
-        return false;
-    }
-    build[sizeof(build) - 1] = '\0';
-    // Release numbering is not ordered numerically against the 26A5xxx betas.
-    // Keep the observed release behavior explicit; do not widen beta coverage.
-    cached_result = strcmp(build, "26A428") == 0;
-    return cached_result == 1;
+bool iss_uses_modern_horizontal_switching(void) {
+    // Select by the macOS major version so point updates cannot disable the
+    // preset velocities, near-zero Instant progress or trackpad recovery.
+    return iss_requires_event_augmentation();
 }
 
 double iss_horizontal_switch_velocity(double requested_velocity) {
-    if (!iss_requires_event_augmentation()) return requested_velocity;
-    if (iss_uses_release_horizontal_payload()) {
-        // PR #102's 9999 fling commits without the full-progress preview.
-        // Preserve preset differences instead of using a fixed fling for all.
-        // Bound before multiplication, well within the signed 16.16 range.
-        if (!isfinite(requested_velocity) || requested_velocity < 0.0) return 0.0;
-        return requested_velocity >= 999.9 ? 9999.0 : requested_velocity * 10.0;
-    }
-    return requested_velocity > 100.0 ? 100.0 : requested_velocity;
+    if (!iss_uses_modern_horizontal_switching()) return requested_velocity;
+    // PR #102's 9999 fling commits without the full-progress preview.
+    // Bound before multiplication, within the signed 16.16 range.
+    if (!isfinite(requested_velocity) || requested_velocity < 0.0) return 0.0;
+    return requested_velocity >= 999.9 ? 9999.0 : requested_velocity * 10.0;
 }
 
 static uint8_t *iss_generate_iohid_payload(CGEventRef event, size_t *out_length) {
@@ -229,19 +158,9 @@ static uint8_t *iss_generate_iohid_payload(CGEventRef event, size_t *out_length)
     double vel_y = CGEventGetDoubleValueField(event, (CGEventField)130);
     int64_t swipe_mask = CGEventGetIntegerValueField(event, (CGEventField)115);
 
-    // Build 26A5406e no longer derives instant horizontal animation from the
-    // former epsilon/100 raw values. Keep the outer CGEvent fields unchanged
-    // for Dock routing, but commit full progress and the verified terminal
-    // velocity inside field 4205. Older macOS 27 builds retain the render-safe
-    // payload validated on 26A5388g.
-    if (motion == 1 &&
-        iss_running_build_uses_instant_horizontal_payload()) {
-        if (progress != 0.0) progress = progress < 0.0 ? -1.0 : 1.0;
-        if (phase == 4 && vel_x != 0.0) {
-            vel_x = vel_x < 0.0
-                ? -kUpdatedHorizontalVelocity : kUpdatedHorizontalVelocity;
-        }
-    }
+    // Horizontal fields already contain the selected preset's progress and
+    // velocity. Preserve them in field 4205, including near-zero Instant
+    // progress, instead of applying a build-specific normalization.
 
     bool include_velocity = (vel_x != 0.0 || vel_y != 0.0 || phase == 4);
     uint32_t event_count = include_velocity ? 2 : 1;

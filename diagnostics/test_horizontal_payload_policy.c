@@ -77,11 +77,11 @@ static bool find_payload(CFDataRef data, const uint8_t **payload,
     return false;
 }
 
-static bool verify_policy(const char *force_value,
-                          int32_t expected_progress,
-                          int32_t expected_velocity) {
+static bool verify_policy(double progress, double speed) {
     setenv("ISS_FORCE_EVENT_AUGMENTATION", "1", 1);
-    setenv("ISS_FORCE_INSTANT_HORIZONTAL_PAYLOAD", force_value, 1);
+    int32_t expected_progress = (int32_t)(progress * 65536.0);
+    if (!expected_progress && progress != 0.0) expected_progress = progress < 0 ? -1 : 1;
+    const int32_t expected_velocity = (int32_t)(speed * 65536.0);
 
     CGEventRef event = CGEventCreate(NULL);
     if (!event) return false;
@@ -89,9 +89,9 @@ static bool verify_policy(const char *force_value,
     CGEventSetIntegerValueField(event, (CGEventField)110, 23);
     CGEventSetIntegerValueField(event, (CGEventField)123, 1);
     CGEventSetIntegerValueField(event, (CGEventField)132, 4);
-    CGEventSetDoubleValueField(event, (CGEventField)124, 0.000016);
+    CGEventSetDoubleValueField(event, (CGEventField)124, progress);
     CGEventSetDoubleValueField(event, (CGEventField)125, 0.1);
-    CGEventSetDoubleValueField(event, (CGEventField)129, 100.0);
+    CGEventSetDoubleValueField(event, (CGEventField)129, speed);
 
     CGEventRef prepared = iss_prepare_dock_swipe_event_for_current_os(event);
     CFRelease(event);
@@ -120,11 +120,11 @@ static bool verify_policy(const char *force_value,
         matches = fluid.gesture_motion == 1 &&
             fluid.swipe_progress == expected_progress &&
             velocity.velocity_x == expected_velocity &&
-            fabs(outer_progress - 0.000016) < 0.000001 &&
-            fabs(outer_velocity - 100.0) < 0.001;
-        printf("FORCE=%s MOTION=%u RAW_PROGRESS=%d RAW_VELOCITY=%d "
+            fabs(outer_progress - progress) < 0.000001 &&
+            fabs(outer_velocity - speed) < 0.001;
+        printf("MOTION=%u RAW_PROGRESS=%d RAW_VELOCITY=%d "
                "OUTER_PROGRESS=%.6f OUTER_VELOCITY=%.1f\n",
-               force_value, fluid.gesture_motion, fluid.swipe_progress,
+               fluid.gesture_motion, fluid.swipe_progress,
                velocity.velocity_x,
                outer_progress, outer_velocity);
     }
@@ -133,9 +133,15 @@ static bool verify_policy(const char *force_value,
 }
 
 int main(void) {
-    const bool render_safe = verify_policy("0", 1, 100 * 65536);
-    const bool instant = verify_policy("1", 1 << 16, 400 * 65536);
+    bool passed = true;
+    const double velocities[] = {1000, 4000, 9999};
+    for (int sign = -1; sign <= 1; sign += 2) {
+        for (unsigned i = 0; i < 3; i++) {
+            const double progress = sign * (i == 2 ? 0.000016 : 1.0);
+            if (!verify_policy(progress, sign * velocities[i])) passed = false;
+        }
+    }
     printf("%s: horizontal payload policy\n",
-           render_safe && instant ? "PASS" : "FAIL");
-    return render_safe && instant ? 0 : 1;
+           passed ? "PASS" : "FAIL");
+    return passed ? 0 : 1;
 }

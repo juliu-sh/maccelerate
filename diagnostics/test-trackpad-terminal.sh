@@ -9,3 +9,6 @@ clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function -I Sources/ISS \
   -framework ApplicationServices -framework CoreFoundation -framework IOKit \
   -o "$test_dir/terminal"
 "$test_dir/terminal"
+for product in 27.0.1 27.1 28.0; do
+  "$test_dir/terminal" "$product" unknown
+done

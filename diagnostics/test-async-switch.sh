@@ -6,8 +6,7 @@ trap 'rm -rf "$test_dir"' EXIT
 flags=(-std=c11 -Wall -Wextra -Werror -Wno-pointer-bool-conversion -Wno-ignored-attributes -Wno-unused-function)
 frameworks=(-framework ApplicationServices -framework CoreFoundation -framework IOKit)
 clang "${flags[@]}" diagnostics/test_async_switch.c Sources/ISS/event_serialize.c "${frameworks[@]}" -o "$test_dir/async"
-ISS_FORCE_INSTANT_HORIZONTAL_PAYLOAD=0 "$test_dir/async"
-ISS_FORCE_INSTANT_HORIZONTAL_PAYLOAD=1 "$test_dir/async"
+"$test_dir/async"
 clang "${flags[@]}" -DLEGACY_TRACE diagnostics/test_async_switch.c Sources/ISS/event_serialize.c "${frameworks[@]}" -o "$test_dir/legacy"
 "$test_dir/legacy" > "$test_dir/legacy.txt"
 diff -u diagnostics/macos26-baseline.txt "$test_dir/legacy.txt"

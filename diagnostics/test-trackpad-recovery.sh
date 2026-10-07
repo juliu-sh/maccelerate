@@ -12,5 +12,10 @@ clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
 if [[ $# -gt 0 ]]; then
   "$test_dir/recovery" "$1"
 else
-  for mode in request stale matrix; do "$test_dir/recovery" "$mode"; done
+  for mode in request stale matrix; do
+    "$test_dir/recovery" "$mode"
+    for product in 27.0.1 27.1 28.0; do
+      "$test_dir/recovery" "$mode" "$product" unknown
+    done
+  done
 fi

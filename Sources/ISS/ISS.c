@@ -442,7 +442,7 @@ static CGEventRef accelerate_physical_vertical_gesture(
 
 static void swipe_override_switch(ISSDirection dir) {
     if (iss_uses_async_switching()) {
-        if (iss_uses_release_horizontal_payload()) trackpad_submit(dir);
+        if (iss_uses_modern_horizontal_switching()) trackpad_submit(dir);
         else iss_request_switch(dir, ISSSwitchSourceTrackpad, NULL);
         return;
     }
@@ -505,7 +505,7 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
             }
         }
         async_cancel(false);
-        if (iss_uses_release_horizontal_payload()) trackpad_reset();
+        if (iss_uses_modern_horizontal_switching()) trackpad_reset();
         interruptedHorizontalSwipe = interruptedHorizontalSwipe || swipeTracking;
         swipeTracking = false;
         swipeFired = false;
@@ -565,7 +565,7 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
     CGSEventType eventType =
         (CGSEventType)CGEventGetIntegerValueField(event, kCGSEventTypeField);
 
-    const bool recoverPhysicalGesture = iss_uses_release_horizontal_payload();
+    const bool recoverPhysicalGesture = iss_uses_modern_horizontal_switching();
     if (recoverPhysicalGesture &&
         (eventType == kCGSEventDockControl || eventType == kCGSEventGesture)) {
         if (iss_is_neutral_gesture_terminal(event)) return event;
@@ -991,11 +991,11 @@ static bool iss_post_dock_swipe_at(CGSGesturePhase phase, ISSDirection direction
     double progress = iss_requires_event_augmentation()
                                 ? (isRight ? 0.000016 : -0.000016)
                                 : (isRight ? (double)FLT_TRUE_MIN : -(double)FLT_TRUE_MIN);
-    // On 26A428 near-zero progress skips the slide even at Fast/Faster speeds.
+    // On macOS 27 and later, near-zero progress skips the slide even at Fast/Faster speeds.
     // Commit visible progress for those presets; reserve the zero-distance
     // fling for Instant. Velocity is the request snapshot, so a preference
     // change cannot mix two progress modes within an in-flight gesture.
-    if (iss_uses_release_horizontal_payload() && velocity < 9999.0) {
+    if (iss_uses_modern_horizontal_switching() && velocity < 9999.0) {
         progress = isRight ? 1.0 : -1.0;
     }
 

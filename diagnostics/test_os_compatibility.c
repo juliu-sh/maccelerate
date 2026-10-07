@@ -10,11 +10,6 @@ typedef struct {
     bool expects_iohid_payload;
 } VersionCase;
 
-typedef struct {
-    const char *version;
-    bool expects_instant_horizontal_payload;
-} BuildCase;
-
 static uint16_t read_be16(const uint8_t *bytes) {
     return (uint16_t)(((uint16_t)bytes[0] << 8) | bytes[1]);
 }
@@ -73,7 +68,11 @@ int main(void) {
         {"26.6", false},
         {"27", true},
         {"27.0", true},
+        {"27.0.0", true},
+        {"27.0.1", true},
+        {"27.1", true},
         {"28.1.2", true},
+        {"29.0", true},
         {"", false},
         {"macOS 27", false},
         {"26beta", false},
@@ -92,36 +91,6 @@ int main(void) {
         if (actual != cases[index].expects_iohid_payload) passed = false;
     }
 
-    const BuildCase build_cases[] = {
-        {"26A5388g", false},
-        {"26A5406", false},
-        {"26A5406d", false},
-        {"26A5406e", true},
-        {"26A5406f", true},
-        {"26A5407", true},
-        {"26B1", true},
-        {"27A1", true},
-        {"25Z9999z", false},
-        {"26A", false},
-        {"26A5406ee", false},
-        {"macOS 27", false},
-    };
-    for (size_t index = 0;
-         index < sizeof(build_cases) / sizeof(build_cases[0]); index++) {
-        const bool actual =
-            iss_build_version_uses_instant_horizontal_payload(
-                build_cases[index].version);
-        printf("BUILD=%s EXPECTED=%s ACTUAL=%s\n",
-               build_cases[index].version,
-               build_cases[index].expects_instant_horizontal_payload
-                   ? "instant" : "render-safe",
-               actual ? "instant" : "render-safe");
-        if (actual !=
-            build_cases[index].expects_instant_horizontal_payload) {
-            passed = false;
-        }
-    }
-
     const char *runtime_expected = getenv("ISS_EXPECT_EVENT_AUGMENTATION");
     if (runtime_expected) {
         const bool expected = runtime_expected[0] == '1';
@@ -129,7 +98,7 @@ int main(void) {
         printf("RUNTIME_EXPECTED=%s RUNTIME_ACTUAL=%s\n",
                expected ? "iohid" : "legacy",
                actual ? "iohid" : "legacy");
-        if (actual != expected) passed = false;
+        if (actual != expected || iss_uses_modern_horizontal_switching() != expected) passed = false;
         if (!prepared_event_matches_runtime_mode(expected)) passed = false;
     }
 

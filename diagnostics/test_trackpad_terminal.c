@@ -1,11 +1,13 @@
 #include <ApplicationServices/ApplicationServices.h>
 #include <errno.h>
 #include <string.h>
+static const char *trackpad_product_version = "27.0";
+static const char *trackpad_build_version = "26A428";
 int trackpad_fixture_sysctlbyname(const char *name, void *out, size_t *size,
                                  void *value, size_t value_size) {
     (void)value; (void)value_size;
-    const char *text = !strcmp(name, "kern.osproductversion") ? "27.0"
-        : !strcmp(name, "kern.osversion") ? "26A428" : NULL;
+    const char *text = !strcmp(name, "kern.osproductversion") ? trackpad_product_version
+        : !strcmp(name, "kern.osversion") ? trackpad_build_version : NULL;
     if (!text) { errno = ENOENT; return -1; }
     size_t length = strlen(text) + 1;
     if (!out) { *size = length; return 0; }
@@ -45,9 +47,10 @@ static void assert_neutral(CGEventRef event, int phase) {
     CFRelease(data);
 }
 
-int main(void) {
-    setenv("ISS_FORCE_EVENT_AUGMENTATION", "1", 1);
-    unsetenv("ISS_FORCE_INSTANT_HORIZONTAL_PAYLOAD");
+int main(int argc, char **argv) {
+    if (argc > 1) trackpad_product_version = argv[1];
+    if (argc > 2) trackpad_build_version = argv[2];
+    unsetenv("ISS_FORCE_EVENT_AUGMENTATION");
     unsigned cases = 0;
     for (int phase = 4; phase <= 8; phase += 4) {
         for (int companion_first = 0; companion_first <= 1; companion_first++) {
@@ -98,6 +101,7 @@ int main(void) {
     CFRelease(foreign_end);
     iss_destroy();
     if (last_posted) { CFRelease(last_posted); last_posted = NULL; }
-    printf("PASS: %u terminal order/phase cases, idle and foreign pass-through; no desktop input\n", cases);
+    printf("PASS: product=%s build=%s; %u terminal order/phase cases, idle and foreign pass-through; no desktop input\n",
+           trackpad_product_version, trackpad_build_version, cases);
     return 0;
 }

@@ -1,11 +1,13 @@
 #include <errno.h>
 #include <string.h>
 #include <stddef.h>
+static const char *trackpad_product_version = "27.0";
+static const char *trackpad_build_version = "26A428";
 int trackpad_fixture_sysctlbyname(const char *name, void *out, size_t *size,
                                  void *value, size_t value_size) {
     (void)value; (void)value_size;
-    const char *text = !strcmp(name, "kern.osproductversion") ? "27.0"
-        : !strcmp(name, "kern.osversion") ? "26A428" : NULL;
+    const char *text = !strcmp(name, "kern.osproductversion") ? trackpad_product_version
+        : !strcmp(name, "kern.osversion") ? trackpad_build_version : NULL;
     if (!text) { errno = ENOENT; return -1; }
     size_t length = strlen(text) + 1;
     if (!out) { *size = length; return 0; }
@@ -213,9 +215,12 @@ static unsigned recovery_matrix(void) {
 }
 
 int main(int argc, char **argv) {
-    setenv("ISS_FORCE_EVENT_AUGMENTATION", "1", 1);
+    if (argc > 2) trackpad_product_version = argv[2];
+    if (argc > 3) trackpad_build_version = argv[3];
+    unsetenv("ISS_FORCE_EVENT_AUGMENTATION");
     if (argc > 1 && !strcmp(argv[1], "matrix")) {
-        printf("PASS: %u request/recovery/lifecycle scenarios; no desktop input\n", recovery_matrix());
+        printf("PASS: product=%s build=%s; %u request/recovery/lifecycle scenarios; no desktop input\n",
+               trackpad_product_version, trackpad_build_version, recovery_matrix());
         return 0;
     }
     if (argc > 1 && !strcmp(argv[1], "stale")) {

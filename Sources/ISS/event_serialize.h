@@ -51,22 +51,14 @@ CGEventRef iss_accelerate_vertical_dock_swipe_event(
  */
 bool iss_product_version_requires_event_augmentation(const char *version);
 
-/**
- * @brief Returns whether an Apple build-version string selects the updated
- * horizontal animation payload introduced by macOS 27 build 26A5406e.
- *
- * Malformed versions conservatively retain the older render-safe payload.
+/** Use the preset and trackpad-recovery path on macOS 27 and later.
+ * Selection depends on the product's major version, not an Apple build string.
  */
-bool iss_build_version_uses_instant_horizontal_payload(const char *version);
-
-/** The release-build velocity policy verified on macOS 27.0 / 26A428.
- * Older beta and unverified builds retain their existing behavior.
- */
-bool iss_uses_release_horizontal_payload(void);
+bool iss_uses_modern_horizontal_switching(void);
 
 /** Translate a requested horizontal velocity to the current OS's range.
- * macOS 13–26 is unchanged. On 26A428 the three preset velocities become
- * 1000, 4000, and 9999; other macOS 27 builds retain the 100 cap.
+ * macOS 13–26 is unchanged. On macOS 27 and later the three preset velocities
+ * become 1000, 4000, and 9999, independently of the minor or patch version.
  */
 double iss_horizontal_switch_velocity(double requested_velocity);
 

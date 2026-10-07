@@ -32,6 +32,8 @@ python3 diagnostics/test-release.py
 
 The app is in `build/Maccelerate.app`; the DMG is in `build/Maccelerate-<version>.dmg`. Sparkle is pinned in `Package.resolved`, and licenses are bundled inside the app. The DMG shows only Maccelerate and the Applications shortcut.
 
+Current source builds apply the horizontal speed presets and trackpad recovery on macOS 27 and later, based on the major product version. Minor updates and Apple build numbers do not disable that path. macOS 26 and earlier keep the existing switching behavior. The published 1.1.20 build still limits these changes to macOS 27.0 build 26A428. Live validation on later system versions remains incomplete.
+
 Own builds use the separate bundle ID `com.interversehq.Maccelerate.source`, a local/ad hoc signature, and no official update feed. They may require manual approval on another Mac. Quit the official app before running your own build so two event taps do not process input at once. Rebranding or redistributing a fork requires your own signing and update configuration.
 
 ## Official releases
