@@ -227,6 +227,13 @@ static void completed(uint64_t id, ISSSwitchResult result) {
     // Reentrant submissions are explicitly rejected.
     assert(!iss_request_switch(ISSDirectionRight, ISSSwitchSourceExplicit, NULL));
 }
+static uint64_t statistics_total(void) {
+    ISSStatisticsSnapshot snapshot;
+    iss_statistics_copy_snapshot(&snapshot);
+    uint64_t total = 0;
+    for (unsigned i = 0; i < ISSStatisticBucketCount; i++) total += snapshot.counts[i];
+    return total;
+}
 static void expect(uint64_t id, ISSSwitchResult result) {
     for (unsigned i = 0; i < completion_count; i++) {
         if (completed_ids[i] == id) { assert(completed_results[i] == result); return; }
@@ -259,6 +266,9 @@ static void reset(void) {
     actual[0] = 1; actual[1] = 0; cursor_display = 0; count = 5;
     missing = reordered = overview = auto_confirm = duplicate_space = false;
     fail_create_after = -1; cmdtab_pid = 0; cmdtab_destination = 13; cmdtab_ambiguous = false;
+    iss_statistics_reset();
+    iss_statistics_set_enabled(true);
+    iss_statistics_set_reduce_motion(false);
     iss_set_gesture_speed(1000);
     iss_set_switch_callback(switched);
     clock_now = 100;
@@ -290,11 +300,11 @@ int main(void) {
     fire(); // still the starting Space
     actual[0] = 2;
     drain(); expect(id, ISSSwitchResultSuccess);
-    assert(switch_count == 1);
+    assert(switch_count == 1 && statistics_total() == 1);
 
     reset(); id = relative(ISSDirectionRight);
     drain(); expect(id, ISSSwitchResultTimedOut);
-    assert(post_count == 3 && !switch_count);
+    assert(post_count == 3 && !switch_count && !statistics_total());
     assert(clock_now >= 103.02 && clock_now < 103.08);
 
     reset(); auto_confirm = true;
@@ -302,13 +312,13 @@ int main(void) {
     uint64_t newer = relative(ISSDirectionRight);
     expect(id, ISSSwitchResultSuperseded);
     drain(); expect(newer, ISSSwitchResultSuccess);
-    assert(actual[0] == 3 && post_count == 6);
+    assert(actual[0] == 3 && post_count == 6 && statistics_total() == 1);
 
     reset(); auto_confirm = true;
     id = relative(ISSDirectionRight);
     newer = relative(ISSDirectionLeft);
     drain(); expect(id, ISSSwitchResultSuperseded); expect(newer, ISSSwitchResultAlreadyReached);
-    assert(!post_count && !switch_count);
+    assert(!post_count && !switch_count && !statistics_total());
 
     reset(); auto_confirm = true;
     id = relative(ISSDirectionRight); fire();
@@ -325,7 +335,7 @@ int main(void) {
 
     reset(); auto_confirm = true;
     id = absolute(4); drain(); expect(id, ISSSwitchResultSuccess);
-    assert(post_count == 9 && last_switch == 4);
+    assert(post_count == 9 && last_switch == 4 && statistics_total() == 1);
 
     reset(); id = absolute(1); drain(); expect(id, ISSSwitchResultAlreadyReached);
     assert(!post_count);
@@ -384,7 +394,7 @@ int main(void) {
         case 5: overview = true; break;
         }
         drain(); expect(id, ISSSwitchResultCancelled);
-        assert(post_count == 3 && !switch_count);
+        assert(post_count == 3 && !switch_count && !statistics_total());
     }
     reset(); overview = true; id = relative(ISSDirectionRight);
     drain(); expect(id, ISSSwitchResultCancelled); assert(!post_count);
@@ -408,20 +418,24 @@ int main(void) {
         for (unsigned i = 0; i < stage; i++) fire();
         fail_create_after = stage == 0 ? 1 : 0;
         fire(); expect(id, ISSSwitchResultPostFailed);
-        assert(!async_busy() && !asyncTimer && !switch_count);
+        assert(!async_busy() && !asyncTimer && !switch_count && !statistics_total());
         fail_create_after = -1;
     }
     reset(); auto_confirm = true;
     iss_set_gesture_speed(400);
+    iss_statistics_set_reduce_motion(true);
     id = absolute(3);
     iss_set_gesture_speed(1000);
+    iss_statistics_set_reduce_motion(false);
     drain(); expect(id, ISSSwitchResultSuccess);
-    assert(actual[0] == 3 && switch_count == 1);
+    assert(actual[0] == 3 && switch_count == 1 && statistics_total() == 1);
+    assert(statisticsSnapshot.counts[(ISSStatisticSpaceSwitch * ISSStatisticSpeedCount + 1) * ISSStatisticMotionCount + 1] == 1);
 
     reset(); auto_confirm = true;
     id = iss_request_switch_to_index(3, ISSSwitchSourceCmdTab, completed);
     drain(); expect(id, ISSSwitchResultSuccess);
-    assert(!switch_count);
+    assert(!switch_count && statistics_total() == 1);
+    assert(statisticsSnapshot.counts[(ISSStatisticAppSwitch * ISSStatisticSpeedCount + 3) * ISSStatisticMotionCount] == 1);
     assert(!iss_request_follow_cmd_tab_application(0, completed));
     reset(); auto_confirm = true; cmdtab_pid = 1234;
     lastCmdTabRelease = clock_now;
@@ -456,13 +470,30 @@ int main(void) {
     id = iss_request_switch(ISSDirectionRight, ISSSwitchSourceTrackpad, completed);
     newer = absolute(3); iss_set_swipe_override(false);
     drain(); expect(id, ISSSwitchResultSuperseded); expect(newer, ISSSwitchResultSuccess);
-    assert(switch_count == 1);
+    assert(switch_count == 1 && statistics_total() == 1);
 
     reset(); auto_confirm = true;
     iss_set_gesture_speed(25);
     id = absolute(3); drain(); expect(id, ISSSwitchResultSuccess);
     const double custom_velocity = iss_uses_modern_horizontal_switching() ? 500 : 50;
     assert(velocities[2] == custom_velocity && velocities[5] == custom_velocity);
+
+    // Reset and pause/resume must not resurrect an earlier request's count.
+    for (unsigned change = 0; change < 3; change++) {
+        reset(); auto_confirm = true;
+        if (change == 2) iss_statistics_set_enabled(false);
+        id = relative(ISSDirectionRight); fire();
+        if (change == 0) iss_statistics_reset();
+        else {
+            iss_statistics_set_enabled(false);
+            iss_statistics_set_enabled(true);
+        }
+        drain(); expect(id, ISSSwitchResultSuccess);
+        assert(!statistics_total());
+        newer = relative(ISSDirectionRight);
+        drain(); expect(newer, ISSSwitchResultSuccess);
+        assert(statistics_total() == 1);
+    }
 
     // The CLI still waits for confirmation and returns the observed outcome.
     reset(); auto_confirm = true;

@@ -87,6 +87,7 @@ static bool swipeFired = false;
 static bool interruptedHorizontalSwipe = false;
 static bool horizontalCompanionEnded = false;
 static bool horizontalCompanionTail = false;
+static bool verticalGestureAccelerated = false;
 
 typedef struct {
     bool enabled;
@@ -109,6 +110,68 @@ static const CGEventFlags kNativeOverlayFlags =
 
 // Gesture speed state
 static double gestureSpeed = 1000.0;
+static bool statisticsEnabled = false;
+static bool statisticsReduceMotion = false;
+static bool statisticsDirty = false;
+// Reset/pause invalidates requests started in an earlier recording period.
+static uint64_t statisticsGeneration = 0;
+static ISSStatisticsDirtyCallback statisticsDirtyCallback = NULL;
+static ISSStatisticsSnapshot statisticsSnapshot = {0};
+
+static int statistics_speed_index(void) {
+    if (gestureSpeed >= 1000.0) return 3;
+    if (gestureSpeed >= 800.0) return 2;
+    if (gestureSpeed >= 400.0) return 1;
+    if (gestureSpeed >= 100.0) return 0;
+    return -1;
+}
+
+static void statistics_record_at(ISSStatisticAction action, int speed, bool reduced) {
+    if (!statisticsEnabled || speed < 0 || speed >= ISSStatisticSpeedCount
+        || action < 0 || action >= ISSStatisticActionCount) return;
+    const size_t index = ((size_t)action * ISSStatisticSpeedCount
+                          + (size_t)speed) * ISSStatisticMotionCount
+                         + (reduced ? 1u : 0u);
+    if (statisticsSnapshot.counts[index] == UINT64_MAX) return;
+    statisticsSnapshot.counts[index]++;
+    if (!statisticsDirty) {
+        statisticsDirty = true;
+        if (statisticsDirtyCallback) statisticsDirtyCallback();
+    }
+}
+
+static void statistics_record(ISSStatisticAction action) {
+    statistics_record_at(action, statistics_speed_index(), statisticsReduceMotion);
+}
+
+void iss_statistics_set_enabled(bool enabled) {
+    if (enabled != statisticsEnabled) {
+        ++statisticsGeneration;
+        verticalGestureAccelerated = false;
+    }
+    statisticsEnabled = enabled;
+}
+void iss_statistics_set_reduce_motion(bool enabled) {
+    statisticsReduceMotion = enabled;
+}
+void iss_statistics_set_dirty_callback(ISSStatisticsDirtyCallback callback) {
+    statisticsDirtyCallback = callback;
+}
+void iss_statistics_copy_snapshot(ISSStatisticsSnapshot *snapshot) {
+    if (snapshot) *snapshot = statisticsSnapshot;
+}
+void iss_statistics_take_snapshot(ISSStatisticsSnapshot *snapshot) {
+    if (!snapshot) return;
+    *snapshot = statisticsSnapshot;
+    memset(&statisticsSnapshot, 0, sizeof(statisticsSnapshot));
+    statisticsDirty = false;
+}
+void iss_statistics_reset(void) {
+    ++statisticsGeneration;
+    memset(&statisticsSnapshot, 0, sizeof(statisticsSnapshot));
+    statisticsDirty = false;
+    verticalGestureAccelerated = false;
+}
 // Build 26A5388g accepts larger horizontal velocities but can leave the
 // WindowServer transition incomplete (missing menu bar/windows). 100 is the
 // highest configured preset verified to complete reliably on macOS 27.
@@ -353,6 +416,8 @@ static CGEventRef translate_physical_overlay_hotkey(CGEventTapProxy proxy,
         const ISSOverlayMode mode = (ISSOverlayMode)activeOverlayHotkey;
         if (post_accelerated_overlay(proxy, event, mode)) {
             activeOverlayHotkeyWasAccelerated = true;
+            statistics_record(mode == ISSOverlayModeMissionControl
+                                  ? ISSStatisticMissionControl : ISSStatisticAppExpose);
             return NULL;
         }
         activeOverlayHotkeyWasAccelerated = false;
@@ -381,6 +446,7 @@ static CGEventRef accelerate_physical_vertical_gesture(
     const CGSGesturePhase phase = (CGSGesturePhase)CGEventGetIntegerValueField(
         event, kCGEventGesturePhase);
     if (phase == kCGSGesturePhaseBegan || phase == kCGSGesturePhaseCancelled) {
+        verticalGestureAccelerated = false;
         return event;
     }
     if (phase != kCGSGesturePhaseChanged && phase != kCGSGesturePhaseEnded) {
@@ -389,10 +455,12 @@ static CGEventRef accelerate_physical_vertical_gesture(
 
     const double multiplier = vertical_gesture_multiplier();
     if (multiplier <= 1.0) {
+        if (phase == kCGSGesturePhaseEnded) verticalGestureAccelerated = false;
         return event;
     }
 
     if (inputRequiresRestart || !iss_has_event_access()) {
+        verticalGestureAccelerated = false;
         iss_suspend_for_permission_change();
         return event;
     }
@@ -400,6 +468,7 @@ static CGEventRef accelerate_physical_vertical_gesture(
         CGEventRef accelerated = iss_accelerate_vertical_dock_swipe_event(
             event, multiplier, kMacOS27MaxGestureVelocity);
         if (!accelerated) {
+            if (phase == kCGSGesturePhaseEnded) verticalGestureAccelerated = false;
             return event;
         }
 
@@ -408,6 +477,14 @@ static CGEventRef accelerate_physical_vertical_gesture(
         // unaccelerated original.
         CGEventTapPostEvent(proxy, accelerated);
         CFRelease(accelerated);
+        if (phase == kCGSGesturePhaseChanged) {
+            verticalGestureAccelerated = true;
+        } else {
+            if (verticalGestureAccelerated) {
+                statistics_record(ISSStatisticOverviewGesture);
+            }
+            verticalGestureAccelerated = false;
+        }
         return NULL;
     }
 
@@ -420,6 +497,7 @@ static CGEventRef accelerate_physical_vertical_gesture(
                                progress * multiplier);
     CGEventSetDoubleValueField(event, kCGEventGestureSwipePositionY,
                                positionY * multiplier);
+    if (phase == kCGSGesturePhaseChanged) verticalGestureAccelerated = true;
 
     if (phase == kCGSGesturePhaseEnded) {
         const double velocityY = CGEventGetDoubleValueField(
@@ -432,6 +510,10 @@ static CGEventRef accelerate_physical_vertical_gesture(
             CGEventSetDoubleValueField(event, kCGEventGestureSwipeVelocityY,
                                        signedVelocity);
         }
+        if (verticalGestureAccelerated) {
+            statistics_record(ISSStatisticOverviewGesture);
+        }
+        verticalGestureAccelerated = false;
     }
     return event;
 }
@@ -458,6 +540,7 @@ static void swipe_override_switch(ISSDirection dir) {
 
     if (iss_switch_with_info(&info, dir)) {
         set_prediction(info.displayID, target);
+        statistics_record(ISSStatisticSpaceSwitch);
         if (switchCallback) { switchCallback(target); }
     }
 }
@@ -509,6 +592,7 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
         interruptedHorizontalSwipe = interruptedHorizontalSwipe || swipeTracking;
         swipeTracking = false;
         swipeFired = false;
+        verticalGestureAccelerated = false;
         cmdTabPending = false;
         lastCmdTabKeyDown = 0;
         lastCmdTabRelease = 0;
@@ -555,6 +639,10 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
             const ISSOverlayMode mode = (ISSOverlayMode)pendingMenuOverlay;
             menuOverlayWasTriggered = post_accelerated_overlay(
                 proxy, event, mode);
+            if (menuOverlayWasTriggered) {
+                statistics_record(mode == ISSOverlayModeMissionControl
+                    ? ISSStatisticMissionControl : ISSStatisticAppExpose);
+            }
         }
         pendingMenuOverlay = -1;
         return event;
@@ -1221,6 +1309,7 @@ void iss_destroy(void) {
     async_shutdown();
     swipeTracking = false;
     swipeFired = false;
+    verticalGestureAccelerated = false;
     interruptedHorizontalSwipe = false;
     horizontalCompanionEnded = false;
     horizontalCompanionTail = false;
@@ -1318,6 +1407,7 @@ bool iss_switch(ISSDirection direction) {
             return false;
         }
         set_prediction(info.displayID, target);
+        statistics_record(ISSStatisticSpaceSwitch);
         if (switchCallback) { switchCallback(target); }
         return true;
     }
@@ -1369,6 +1459,7 @@ static bool iss_switch_to_index_internal(unsigned int targetIndex, bool notify,
     }
 
     set_prediction(info.displayID, targetIndex);
+    statistics_record(notify ? ISSStatisticSpaceSwitch : ISSStatisticAppSwitch);
     if (notify && switchCallback) { switchCallback(targetIndex); }
     return true;
 }
@@ -1572,6 +1663,7 @@ void iss_set_swipe_override(bool enabled) {
     if (!enabled) {
         swipeTracking = false;
         swipeFired = false;
+        verticalGestureAccelerated = false;
         interruptedHorizontalSwipe = false;
         horizontalCompanionEnded = false;
         horizontalCompanionTail = false;

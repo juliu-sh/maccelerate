@@ -51,6 +51,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       UserDefaults.standard.set(speed.velocity, forKey: "gestureSpeed")
     }
     iss_set_gesture_speed(speed.velocity)
+    StatisticsStore.shared.start()
+    iss_set_switch_callback { newSpaceIndex in
+      DispatchQueue.main.async {
+        OSDWindow.shared.show(message: "\(newSpaceIndex + 1)")
+      }
+    }
 
     ensureAccessibilityPermission()
 
@@ -83,6 +89,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     inputMonitor?.invalidate()
     inputMonitor = nil
     HotKeyManager.shared.unregisterAll()
+    StatisticsStore.shared.stop()
+    iss_set_switch_callback(nil)
     iss_destroy()
     stopObservingSpaceChanges()
     stopObservingAppActivation()

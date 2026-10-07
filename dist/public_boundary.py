@@ -10,8 +10,9 @@ import zipfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 INVENTORY = "dist/public-files.json"
 MARKER = ".public-free-repository"
-# Identifiers of excluded implementations, not a list of optional feature flags.
-EXCLUDED = re.compile(rb"StatisticsStore|StatisticsModel|StatisticsAccumulator|ISSStatistic|iss_statistics_|statisticsSnapshot|statistics_record|statisticsEnabled|AppearanceSettingsViewController|SpaceHUDView|OSDWindow|SupportMilestones|SupportWindowController|localStatisticsV1|showOSD|osdDurationMs")
+# Appearance/HUD and local statistics are reviewed Free features.
+# Separate support-prompt implementations remain outside this source inventory.
+EXCLUDED = re.compile(rb"SupportMilestones|SupportWindowController")
 PRIVATE_KEY = re.compile(
     rb"-----BEGIN (?:[A-Z ]*PRIVATE KEY)-----|gh[pousr]_[A-Za-z0-9]{30,}"
     rb"|github_pat_[A-Za-z0-9_]{40,}|AKIA[A-Z0-9]{16}"

@@ -12,7 +12,9 @@ typedef struct {
     ISSSwitchSource source;
     ISSSwitchCompletion completion;
     double velocity;
-    bool moved;
+    int speedIndex;
+    uint64_t statisticsGeneration;
+    bool reduceMotion, recordStatistics, moved;
 } ISSAsyncRequest;
 typedef struct {
     bool active;
@@ -122,6 +124,11 @@ static void async_finish(ISSSwitchResult result) {
     ISSAsyncRequest request = asyncRequest;
     memset(&asyncRequest, 0, sizeof(asyncRequest));
     if (result == ISSSwitchResultSuccess) {
+        if (request.recordStatistics && request.statisticsGeneration == statisticsGeneration) {
+            statistics_record_at(request.source == ISSSwitchSourceCmdTab
+                ? ISSStatisticAppSwitch : ISSStatisticSpaceSwitch,
+                request.speedIndex, request.reduceMotion);
+        }
         if (request.source != ISSSwitchSourceCmdTab && switchCallback) switchCallback(request.target);
     }
     async_complete(request, result);
@@ -266,6 +273,10 @@ static uint64_t async_submit(bool relative, unsigned int value, ISSSwitchSource 
     request.source = source;
     request.completion = completion;
     request.velocity = gestureSpeed;
+    request.speedIndex = statistics_speed_index();
+    request.reduceMotion = statisticsReduceMotion;
+    request.recordStatistics = statisticsEnabled;
+    request.statisticsGeneration = statisticsGeneration;
     if (!async_snapshot(&request.snapshot)) {
         async_complete(request, ISSSwitchResultInvalidTarget); return id;
     }

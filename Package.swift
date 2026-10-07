@@ -21,9 +21,10 @@ let package = Package(
                 .linkedFramework("IOKit")
             ]
         ),
+        .target(name: "StatisticsModel"),
         .executableTarget(
             name: "Maccelerate",
-            dependencies: ["ISS", .product(name: "Sparkle", package: "Sparkle")],
+            dependencies: ["ISS", "StatisticsModel", .product(name: "Sparkle", package: "Sparkle")],
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         ),
         .executableTarget(
@@ -35,9 +36,10 @@ let package = Package(
             name: "ISSTests",
             dependencies: ["ISS"]
         ),
+        .testTarget(name: "StatisticsModelTests", dependencies: ["StatisticsModel"]),
         .testTarget(
             name: "MaccelerateTests",
-            dependencies: ["Maccelerate"]
+            dependencies: ["Maccelerate", "ISS", "StatisticsModel"]
         )
     ]
 )

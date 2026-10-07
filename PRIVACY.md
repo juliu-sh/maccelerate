@@ -1,6 +1,12 @@
 # Privacy
 
-Maccelerate processes input events and macOS app, window and Space information locally to switch Spaces and handle shortcuts. It checks key codes and modifiers; it does not record typed text or include analytics or crash reporting. This Free edition does not collect usage counts or maintain an action history.
+Maccelerate processes input events and macOS app, window and Space information locally to switch Spaces and handle shortcuts. It checks key codes and modifiers; it does not record typed text or include analytics or crash reporting. It does not maintain a chronological action history.
+
+## Local statistics
+
+Local statistics are enabled by default. They store aggregate counts by action, speed preset, macOS version and Reduce Motion setting, plus the tracking start date. Counts and the estimated time saved stay in `UserDefaults` on this Mac. They contain no typed text, app names, window titles or event timestamps and are not transmitted. In **Statistics**, you can pause recording without losing prior totals or reset all totals and the start date.
+
+Time saved is an estimate based on reference durations from one screen recording, not a measurement of each transition on your Mac. Results vary by hardware, macOS version and settings.
 
 ## Settings and permissions
 

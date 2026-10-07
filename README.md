@@ -9,6 +9,8 @@ A free, MIT-licensed macOS menu bar app that accelerates switching between Space
 - Optional trackpad gesture override and Mission Control/App Exposé acceleration.
 - Optional acceleration of Cmd-Tab transitions when the destination is unambiguous.
 - Menu bar controls, launch at login, and settings for switching and shortcuts.
+- Appearance settings with an optional Space indicator, duration control and preview.
+- Local statistics by action and speed, estimated time saved, pause and reset controls.
 - Sparkle updates in official builds, with automatic checks off by default.
 - Included command-line tool: `Maccelerate.app/Contents/MacOS/ISSCli --help`.
 
@@ -31,6 +33,8 @@ python3 diagnostics/test-release.py
 ```
 
 The app is in `build/Maccelerate.app`; the DMG is in `build/Maccelerate-<version>.dmg`. Sparkle is pinned in `Package.resolved`, and licenses are bundled inside the app. The DMG shows only Maccelerate and the Applications shortcut.
+
+Current source also includes Appearance and local Statistics in Free; these are not yet in the published 1.1.20 release.
 
 Current source builds apply the horizontal speed presets and trackpad recovery on macOS 27 and later, based on the major product version. Minor updates and Apple build numbers do not disable that path. macOS 26 and earlier keep the existing switching behavior. The published 1.1.20 build still limits these changes to macOS 27.0 build 26A428. Live validation on later system versions remains incomplete.
 

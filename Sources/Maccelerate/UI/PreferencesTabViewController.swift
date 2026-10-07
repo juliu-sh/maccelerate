@@ -4,8 +4,9 @@ import ISS
 final class PreferencesTabViewController: NSViewController {
   private let pages: [NSViewController] = [
     GeneralSettingsViewController(), KeyboardShortcutsViewController(),
+    AppearanceSettingsViewController(), StatisticsViewController(),
   ]
-  private let navigation = NSSegmentedControl(labels: ["Switching", "Shortcuts"],
+  private let navigation = NSSegmentedControl(labels: ["Switching", "Shortcuts", "Appearance", "Statistics"],
                                              trackingMode: .selectOne, target: nil, action: nil)
   private let content = NSView()
   private let permissionSurface = SettingsSurface()

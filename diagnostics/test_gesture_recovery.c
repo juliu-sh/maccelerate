@@ -204,6 +204,37 @@ int main(int argc, char **argv) {
         }
     }
     assert(posted_events == (iss_requires_event_augmentation() ? 4u : 0u));
+    // Count a completed accelerated vertical sequence once, never a cancelled
+    // gesture or one spanning a statistics pause/reset.
+    iss_set_swipe_override(true);
+    iss_statistics_set_enabled(true);
+    iss_set_gesture_speed(1000);
+    for (int interruption = 0; interruption < 4; interruption++) {
+        iss_statistics_reset();
+        const int sequence[] = {1, 2, interruption == 1 ? 8 : 4, 4};
+        for (unsigned phase = 0; phase < 4; phase++) {
+            CGEventRef physical = gesture(30, 2, sequence[phase]);
+            CGEventSetDoubleValueField(physical, (CGEventField)124, 0.1);
+            CGEventSetDoubleValueField(physical, (CGEventField)130, 0.25);
+            CGEventRef prepared = iss_prepare_dock_swipe_event_for_current_os(physical);
+            CFRelease(physical);
+            assert(prepared);
+            CGEventSetIntegerValueField(prepared, kCGEventSourceUnixProcessID, 0);
+            deliver(prepared);
+            CFRelease(prepared);
+            if (phase == 1 && interruption == 2) {
+                iss_statistics_set_enabled(false);
+                iss_statistics_set_enabled(true);
+            } else if (phase == 1 && interruption == 3) iss_statistics_reset();
+        }
+        ISSStatisticsSnapshot snapshot;
+        iss_statistics_copy_snapshot(&snapshot);
+        const size_t index = (ISSStatisticOverviewGesture * ISSStatisticSpeedCount + 3)
+            * ISSStatisticMotionCount;
+        assert(snapshot.counts[index] == (interruption == 0 ? 1u : 0u));
+        scenarios++;
+    }
+    iss_statistics_set_enabled(false);
     if (last_posted) CFRelease(last_posted);
     printf("PASS: %u gesture recovery scenarios (augmentation=%s), no desktop input delivered\n",
            scenarios, argc > 1 ? argv[1] : "0");

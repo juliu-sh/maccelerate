@@ -175,6 +175,39 @@ typedef void (*ISSSwitchCallback)(unsigned int newSpaceIndex);
  */
 void iss_set_switch_callback(ISSSwitchCallback callback);
 
+/** Completed Maccelerate actions, in the order used by statistics snapshots. */
+typedef enum {
+    ISSStatisticSpaceSwitch = 0,
+    ISSStatisticAppSwitch = 1,
+    ISSStatisticMissionControl = 2,
+    ISSStatisticAppExpose = 3,
+    ISSStatisticOverviewGesture = 4,
+    ISSStatisticActionCount = 5
+} ISSStatisticAction;
+
+enum { ISSStatisticSpeedCount = 4, ISSStatisticMotionCount = 2,
+       ISSStatisticBucketCount = 40 };
+
+/** Flat array indexed by ((action * 4 + speed) * 2 + reduceMotion).
+ * Speed indices retain Fast, Faster, legacy Fastest, and Instant bins so
+ * previously recorded statistics remain readable. Fastest is no longer a UI preset.
+ */
+typedef struct {
+    uint64_t counts[ISSStatisticBucketCount];
+} ISSStatisticsSnapshot;
+
+typedef void (*ISSStatisticsDirtyCallback)(void);
+
+/** Statistics calls and the dirty callback share the input main runloop.
+ * The callback must only schedule work; do not perform disk I/O in it.
+ */
+void iss_statistics_set_enabled(bool enabled);
+void iss_statistics_set_reduce_motion(bool enabled);
+void iss_statistics_set_dirty_callback(ISSStatisticsDirtyCallback callback);
+void iss_statistics_copy_snapshot(ISSStatisticsSnapshot *snapshot);
+void iss_statistics_take_snapshot(ISSStatisticsSnapshot *snapshot);
+void iss_statistics_reset(void);
+
 /**
  * @brief Resets the predicted space indices so the next bounds check falls back
  * to live CGS data. Call this whenever the active space changes externally

@@ -31,8 +31,14 @@ class PublicBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unreviewed source"):
             boundary.audit_sources(self.root)
 
+    def test_reviewed_appearance_and_statistics_are_allowed(self):
+        (self.root / "Sources/Core.swift").write_text(
+            "final class StatisticsStore {}\nfinal class AppearanceSettingsViewController {}\n"
+            "final class OSDWindow {}\nlet statisticsEnabled = true\n")
+        boundary.audit_sources(self.root)
+
     def test_code_hidden_in_reviewed_file_is_rejected(self):
-        (self.root / "Sources/Core.swift").write_text("final class StatisticsStore {}")
+        (self.root / "Sources/Core.swift").write_text("final class SupportWindowController {}")
         with self.assertRaisesRegex(ValueError, "Excluded implementation"):
             boundary.audit_sources(self.root)
 
@@ -50,7 +56,7 @@ class PublicBoundaryTests(unittest.TestCase):
         git("config", "user.name", "Boundary test")
         git("config", "user.email", "boundary@example.invalid")
         source = self.root / "Sources/Core.swift"
-        source.write_text("final class StatisticsStore {}")
+        source.write_text("final class SupportWindowController {}")
         git("add", ".")
         git("commit", "-m", "old private code")
         source.write_text("let switching = true\n")
