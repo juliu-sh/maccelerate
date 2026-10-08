@@ -5,6 +5,20 @@ Sparkle and the [Homebrew tap](https://github.com/juliu-sh/homebrew-tap).
 For a local source build, follow [README.md](README.md); Apple signing credentials
 are only needed for distribution.
 
+## Repository and channel responsibilities
+
+This repository is the only app source and production build repository. The
+Homebrew tap is a separate repository containing the generated cask; the
+website is deployed separately. Never merge historical mixed/private history,
+app backups, website data or local release notes into this repository.
+There is one shipped app, Maccelerate Free, including Appearance/HUD and local
+Statistics. Source builds are development tools, not another product/channel.
+
+Publish in this order: verified GitHub assets, matching Sparkle feed, matching
+Homebrew cask, then the website download URL. All channels must refer to the
+same immutable DMG and checksum. Preparing documentation or a candidate does
+not publish anything; public changes require a release request.
+
 ## Publication checks
 
 After cloning, run `./dist/install-publication-guard.sh` to enable this checkout's
@@ -67,8 +81,17 @@ Quit any app running from the checkout's build directory before rebuilding it.
 
 1. Increase the app version and build number in `Info.plist`. Builds must exceed
    every entry in `appcast.xml`; published versions must not be reused.
-2. Update `RELEASE_NOTES_DRAFT.md`, run `bash diagnostics/test-swift.sh` and commit
-   the reviewed changes.
+2. Update product-facing `RELEASE_NOTES_DRAFT.md`, then run:
+
+   ```sh
+   bash diagnostics/test-swift.sh
+   python3 diagnostics/test-build-workflow.py
+   python3 diagnostics/test-public-boundary.py
+   python3 diagnostics/test-release.py
+   ```
+
+   Commit only the reviewed public source files. Keep local release configuration
+   ignored and leave the working tree clean.
 3. From this public checkout, run:
 
    ```sh
@@ -97,7 +120,14 @@ python3 dist/release.py publish VERSION
 The release tool verifies the source commit and candidate checksums. Publish the
 DMG first, verify its public download, then commit the matching appcast and update
 the separate Homebrew tap from the generated cask. Check the cask with Homebrew's
-style and online audit tools. Update website links after downloads are available.
+style and online audit tools. Update the website download URL only after the
+public DMG, feed and cask agree. Deploy only the reviewed website inventory,
+excluding environment files, internal notes, signup records, Git history and
+app binaries. Preserve hosting variables, tracking and persistent signup data;
+verify the normal main/www pages and download target after deployment.
+
+Record the built source tag, feed/tap commits, DMG hash and validation locally.
+Feed documentation commits do not replace the immutable built source tag.
 
 Keep published app assets immutable; corrections need a new version and build.
 The source ZIP uses the exact `dist/public-files.json` inventory. The publication
