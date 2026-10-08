@@ -441,6 +441,8 @@ static CGEventRef translate_physical_overlay_hotkey(CGEventTapProxy proxy,
     return event;
 }
 
+#include "vertical_click_guard.h"
+
 static CGEventRef accelerate_physical_vertical_gesture(
     CGEventTapProxy proxy, CGEventRef event) {
     const CGSGesturePhase phase = (CGSGesturePhase)CGEventGetIntegerValueField(
@@ -587,6 +589,7 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
                 return event;
             }
         }
+        vertical_click_reset();
         async_cancel(false);
         if (iss_uses_modern_horizontal_switching()) trackpad_reset();
         interruptedHorizontalSwipe = interruptedHorizontalSwipe || swipeTracking;
@@ -649,6 +652,14 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
     }
 
     if (!swipeOverrideEnabled) return event;
+    if (type == kCGEventOtherMouseDown || type == kCGEventOtherMouseUp || type == kCGEventOtherMouseDragged) {
+        if (!vertical_click_should_suppress(type, event)) return event;
+        if (!iss_has_event_access()) {
+            iss_suspend_for_permission_change();
+            return event;
+        }
+        return NULL;
+    }
 
     CGSEventType eventType =
         (CGSEventType)CGEventGetIntegerValueField(event, kCGSEventTypeField);
@@ -690,7 +701,13 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
         uint16_t motion =
             (uint16_t)CGEventGetIntegerValueField(event, kCGEventGestureSwipeMotion);
         if (motion == kCGGestureMotionVertical) {
-            return accelerate_physical_vertical_gesture(proxy, event);
+            CGEventRef result = accelerate_physical_vertical_gesture(proxy, event);
+            if (inputRequiresRestart) return result;
+            if (vertical_gesture_multiplier() > 1.0) {
+                const bool accelerated = !iss_requires_event_augmentation() || result == NULL;
+                vertical_click_observe(event, accelerated);
+            } else vertical_click_reset();
+            return result;
         }
         if (motion != kCGGestureMotionHorizontal) return event;
 
@@ -791,6 +808,7 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
         }
     }
 
+    if (eventType == kCGSEventGesture) vertical_click_companion(event);
     if (recoverPhysicalGesture && eventType == kCGSEventGesture &&
         !swipeTracking && !trackpadRecovery.anchor &&
         CGEventGetIntegerValueField(event, kCGEventGesturePhase) == kCGSGesturePhaseBegan) {
@@ -1273,6 +1291,8 @@ bool iss_init(void) {
     CGEventMask mask = CGEventMaskBit(kCGEventKeyDown) |
         CGEventMaskBit(kCGEventKeyUp) | CGEventMaskBit(kCGEventFlagsChanged)
         | CGEventMaskBit(kCGEventLeftMouseDown) | CGEventMaskBit(kCGEventLeftMouseUp)
+        | CGEventMaskBit(kCGEventOtherMouseDown) | CGEventMaskBit(kCGEventOtherMouseUp)
+        | CGEventMaskBit(kCGEventOtherMouseDragged)
         | (1ULL << kCGSEventGesture) | (1ULL << kCGSEventDockControl);
     globalTap = CGEventTapCreate(
         kCGSessionEventTap,
@@ -1305,6 +1325,7 @@ bool iss_init(void) {
 void iss_destroy(void) {
     // Disconnect input before running cancellation callbacks.
     if (globalTap) CGEventTapEnable(globalTap, false);
+    vertical_click_reset();
     trackpad_reset();
     async_shutdown();
     swipeTracking = false;
@@ -1657,6 +1678,7 @@ uint64_t iss_request_follow_cmd_tab_application(pid_t pid,
 }
 
 void iss_set_swipe_override(bool enabled) {
+    if (!enabled) vertical_click_reset();
     if (!enabled) trackpad_reset();
     if (!enabled) async_cancel(true);
     swipeOverrideEnabled = enabled;

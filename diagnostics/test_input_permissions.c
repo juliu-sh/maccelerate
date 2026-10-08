@@ -92,6 +92,31 @@ int main(void) {
     assert(!iss_trigger_overlay_from_event(ISSOverlayModeMissionControl, NULL));
     assert(!iss_post_dock_swipe(kCGSGesturePhaseBegan, ISSDirectionRight, 100));
     assert(posts == 0);
+    // A revoked permission between a vertical gesture and a synthesized
+    // middle click must pass the click through and tear down the filter.
+    reset(); assert(iss_init()); iss_set_swipe_override(true);
+    for (int phase = 1; phase <= 2; phase++) {
+        CGEventRef native = CGEventCreate(NULL);
+        CGEventSetType(native, (CGEventType)30);
+        CGEventSetIntegerValueField(native, (CGEventField)55, 30);
+        CGEventSetIntegerValueField(native, (CGEventField)110, 23);
+        CGEventSetIntegerValueField(native, (CGEventField)123, 2);
+        CGEventSetIntegerValueField(native, (CGEventField)132, phase);
+        CGEventSetIntegerValueField(native, kCGEventSourceUnixProcessID, 0);
+        if (phase == 2) CGEventSetDoubleValueField(native, (CGEventField)124, .1);
+        CGEventRef prepared = iss_prepare_dock_swipe_event_for_current_os(native);
+        CFRelease(native);
+        assert(prepared);
+        CGEventSetIntegerValueField(prepared, kCGEventSourceUnixProcessID, 0);
+        eventTapCallback(NULL, (CGEventType)30, prepared, NULL);
+        CFRelease(prepared);
+    }
+    CGEventRef middle = CGEventCreateMouseEvent(NULL, kCGEventOtherMouseDown, CGPointZero, kCGMouseButtonCenter);
+    CGEventSetIntegerValueField(middle, kCGEventSourceUnixProcessID, 4242);
+    trusted = false;
+    assert(eventTapCallback(NULL, kCGEventOtherMouseDown, middle, NULL) == middle);
+    assert(inputRequiresRestart && !globalTap && !verticalClickGuard.blockedClickPID);
+    CFRelease(middle);
     iss_destroy();
     puts("PASS: permission grant, revoke, stale trust, timeout storm, failed connection and pass-through; no desktop input");
     return 0;
