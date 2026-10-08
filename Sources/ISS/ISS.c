@@ -1760,6 +1760,13 @@ void iss_reset_predictions(void) {
     if (predictionsDict) {
         CFDictionaryRemoveAllValues(predictionsDict);
     }
+    // A delayed Space notification may clear the CLI prediction, but must not
+    // erase the asynchronous app's newer goal or shorten its gesture phases.
+    if (pthread_main_np() && asyncRequest.id &&
+        (!asyncStep.active || asyncStep.nextPhase == kCGSGesturePhaseNone)) {
+        async_trace("observation-hint", -1);
+        async_schedule(0);
+    }
 }
 
 void iss_set_switch_callback(ISSSwitchCallback callback) {

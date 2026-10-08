@@ -22,6 +22,13 @@ static CGPoint locations[256];
 static unsigned phases[256];
 static double times[256], velocities[256], progress_values[256];
 static void (*inspect_posted_event)(CGEventRef event);
+static void (*before_snapshot)(void);
+static bool fixture_animating, animation_symbol_available = true;
+static bool fixture_animation_query(int32_t connection, CFStringRef display) {
+    (void)connection; (void)display;
+    if (before_snapshot) before_snapshot();
+    return fixture_animating;
+}
 static CFArrayRef fixture_displays(int32_t connection, CFStringRef display);
 static int32_t fixture_connection(void) { return 1; }
 static uint64_t fixture_active(int32_t connection) { (void)connection; return (uint64_t)actual[0] + 10; }
@@ -102,7 +109,12 @@ static CFArrayRef fixture_spaces(int32_t connection, int32_t mask, CFArrayRef wi
     CFRelease(number); return result;
 }
 static void *fixture_dlopen(const char *path, int flags) { (void)path; (void)flags; return (void *)1; }
-static void *fixture_dlsym(void *handle, const char *name) { (void)handle; (void)name; return (void *)&fixture_spaces; }
+static void *fixture_dlsym(void *handle, const char *name) {
+    (void)handle;
+    if (!strcmp(name, "CGSManagedDisplayIsAnimating") || !strcmp(name, "SLSManagedDisplayIsAnimating"))
+        return animation_symbol_available ? (void *)&fixture_animation_query : NULL;
+    return (void *)&fixture_spaces;
+}
 #define dlopen fixture_dlopen
 #define dlsym fixture_dlsym
 #define clock_gettime fixture_clock
@@ -130,6 +142,7 @@ static bool fixture_trusted(void) { return fixture_access; }
 
 static CFArrayRef fixture_displays(int32_t connection, CFStringRef display) {
     (void)connection; (void)display;
+    if (before_snapshot) before_snapshot();
     if (missing) return NULL;
     CFMutableArrayRef result = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
     for (int d = 0; d < 2; d++) {
@@ -185,6 +198,17 @@ int main(void) {
     assert(!iss_switch(ISSDirectionRight));
     actual[0] = 1;
     deliver_swipe();
+    // The legacy app callback now uses the coordinator too. Preserve this
+    // baseline's byte-exact synchronous CLI trace in a fresh fixture state.
+    auto_confirm = true;
+    while (asyncTimer) {
+        CFRunLoopTimerRef timer = asyncTimer;
+        CFRetain(timer);
+        clock_now = CFRunLoopTimerGetNextFireDate(timer);
+        async_timer_fired(timer, (void *)asyncTimerGeneration);
+        CFRelease(timer);
+    }
+    auto_confirm = false; actual[0] = 1; clock_now = 100;
     cmdtab_pid = 1234; lastCmdTabRelease = clock_now;
     assert(iss_follow_cmd_tab_application(cmdtab_pid));
     assert(!iss_follow_cmd_tab_application(cmdtab_pid));
@@ -203,7 +227,8 @@ int main(void) {
         printf("phase=%u progress=%a velocity=%a time=%.2f\n", phases[i], progress_values[i], velocities[i], times[i]);
 #ifndef EXPECT_BASELINE_BLOCKING
     assert(!asyncTimer && !async_busy());
-    assert(!iss_request_switch(ISSDirectionRight, ISSSwitchSourceExplicit, NULL));
+    assert(iss_request_switch(ISSDirectionRight, ISSSwitchSourceExplicit, NULL));
+    async_shutdown();
 #endif
     return 0;
 }
@@ -266,6 +291,9 @@ static void reset(void) {
     actual[0] = 1; actual[1] = 0; cursor_display = 0; count = 5;
     missing = reordered = overview = auto_confirm = duplicate_space = false;
     fail_create_after = -1; cmdtab_pid = 0; cmdtab_destination = 13; cmdtab_ambiguous = false;
+    before_snapshot = NULL;
+    inspect_posted_event = NULL;
+    fixture_animating = false;
     iss_statistics_reset();
     iss_statistics_set_enabled(true);
     iss_statistics_set_reduce_motion(false);
@@ -304,7 +332,7 @@ int main(void) {
 
     reset(); id = relative(ISSDirectionRight);
     drain(); expect(id, ISSSwitchResultTimedOut);
-    assert(post_count == 3 && !switch_count && !statistics_total());
+    assert(post_count == 9 && !switch_count && !statistics_total());
     assert(clock_now >= 103.02 && clock_now < 103.08);
 
     reset(); auto_confirm = true;

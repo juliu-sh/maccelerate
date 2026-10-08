@@ -6,6 +6,7 @@ bash diagnostics/test-input-permissions.sh
 bash diagnostics/test-gesture-recovery.sh
 bash diagnostics/test-vertical-middle-click.sh
 bash diagnostics/test-async-switch.sh
+bash diagnostics/test-rapid-switch.sh
 bash diagnostics/test-compatibility.sh
 bash diagnostics/test-release-horizontal.sh
 bash diagnostics/test-trackpad-payload.sh

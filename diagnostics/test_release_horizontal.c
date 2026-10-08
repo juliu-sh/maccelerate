@@ -85,7 +85,6 @@ int main(int argc, char **argv) {
     unsigned cases = 0;
     for (int display = 0; display < 2; display++) {
         for (int path = 0; path < 3; path++) {
-            if (!modern && path == 1) continue;
             for (int direction = 0; direction < 2; direction++) {
                 for (unsigned speed = 0; speed < 3; speed++) {
                     reset(); auto_confirm = true;
@@ -102,7 +101,7 @@ int main(int argc, char **argv) {
                     if (path == 0) assert(iss_perform_switch_gesture(direction, speeds[speed]));
                     else if (path == 1) assert(iss_request_switch(direction, ISSSwitchSourceExplicit, NULL));
                     else physical_swipe(direction);
-                    if (path != 0 && modern) drain();
+                    if (path != 0) drain();
                     assert(post_count == 3 && phases[0] == 1 && phases[1] == 2 && phases[2] == 4);
                     double expected = modern ? modern_speeds[speed] : speeds[speed];
                     if (direction == ISSDirectionLeft) expected = -expected;

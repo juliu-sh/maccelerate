@@ -1,9 +1,10 @@
-// Private implementation included by ISS.c. The legacy switch path never
-// enters this coordinator. Runloop timers replace sleeps and nested runloops.
+// Shared asynchronous app coordinator. OS-specific gesture serialization stays
+// in ISS.c; the synchronous CLI retains its existing event path.
 typedef struct {
     ISSSpaceInfo info;
     CFArrayRef ids;
     CGPoint location;
+    bool animationKnown, animating;
 } ISSAsyncSnapshot;
 typedef struct {
     uint64_t id;
@@ -14,6 +15,9 @@ typedef struct {
     double velocity;
     int speedIndex;
     uint64_t statisticsGeneration;
+    unsigned int retries;
+    double retryDeadline;
+    double waitDeadline;
     bool reduceMotion, recordStatistics, moved;
 } ISSAsyncRequest;
 typedef struct {
@@ -21,7 +25,8 @@ typedef struct {
     ISSAsyncSnapshot snapshot;
     unsigned int target;
     ISSDirection direction;
-    double velocity, deadline;
+    double velocity, deadline, retryAt, quietSince, settleInterval, retryInterval;
+    unsigned int lastObserved;
     CGSGesturePhase nextPhase;
 } ISSAsyncStep;
 static ISSAsyncRequest asyncRequest;
@@ -31,12 +36,49 @@ static uintptr_t asyncTimerGeneration;
 static uint64_t asyncNextID;
 static bool asyncDelivering;
 
-bool iss_uses_async_switching(void) { return iss_requires_event_augmentation(); }
+bool iss_uses_async_switching(void) { return true; }
 static bool async_busy(void) { return asyncRequest.id || asyncStep.active; }
 static double async_now(void) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     return (double)now.tv_sec + (double)now.tv_nsec / 1e9;
+}
+// Opt-in timing diagnostics contain request numbers and aggregate Space indices
+// only. Disabled by default, without file writes or retained keyboard input.
+static void async_trace(const char *action, int observed) {
+    const char *enabled = getenv("MACCELERATE_SWITCH_TRACE");
+    if (!enabled || strcmp(enabled, "1")) return;
+    fprintf(stderr, "[ISS_SWITCH] t=%.6f action=%s request=%llu source=%u target=%u observed=%d step=%u retries=%u\n",
+        async_now(), action, (unsigned long long)asyncRequest.id,
+        (unsigned int)asyncRequest.source, asyncRequest.target + 1,
+        observed < 0 ? -1 : observed + 1,
+        asyncStep.active ? asyncStep.target + 1 : 0, asyncRequest.retries);
+}
+static double async_phase_delay(void) {
+    return iss_requires_event_augmentation() ? 0.01 : 0;
+}
+static double async_settle_interval(void) {
+    // Current Space can change before the compositor accepts a reversal. This
+    // bounded quiet interval is a scheduling guard, not proof of animation end.
+    if (asyncRequest.reduceMotion || asyncRequest.speedIndex >= 3) return 0.12;
+    return asyncRequest.speedIndex >= 1 ? 0.16 : 0.24;
+}
+static double async_retry_interval(void) {
+    if (asyncRequest.reduceMotion || asyncRequest.speedIndex >= 3) return 0.35;
+    return asyncRequest.speedIndex >= 1 ? 0.60 : 1.0;
+}
+static const double kAsyncPollInterval = 0.025;
+static const unsigned int kAsyncMaxRetries = 2;
+typedef bool (*ISSDisplayIsAnimating)(CGSConnectionID, CFStringRef);
+static ISSDisplayIsAnimating async_animation_query(void) {
+    static bool loaded;
+    static ISSDisplayIsAnimating query;
+    if (!loaded) {
+        loaded = true;
+        query = (ISSDisplayIsAnimating)dlsym(RTLD_DEFAULT, "CGSManagedDisplayIsAnimating");
+        if (!query) query = (ISSDisplayIsAnimating)dlsym(RTLD_DEFAULT, "SLSManagedDisplayIsAnimating");
+    }
+    return query;
 }
 static void async_release_snapshot(ISSAsyncSnapshot *snapshot) {
     if (snapshot->ids) CFRelease(snapshot->ids);
@@ -99,6 +141,9 @@ static bool async_snapshot(ISSAsyncSnapshot *snapshot) {
             if (found) {
                 snapshot->ids = ids;
                 snapshot->info.spaceCount = (unsigned int)CFArrayGetCount(ids);
+                ISSDisplayIsAnimating query = async_animation_query();
+                snapshot->animationKnown = query != NULL;
+                snapshot->animating = query && query(connection, identifier);
             } else CFRelease(ids);
             break;
         }
@@ -121,6 +166,9 @@ static void async_complete(ISSAsyncRequest request, ISSSwitchResult result) {
     asyncDelivering = wasDelivering;
 }
 static void async_finish(ISSSwitchResult result) {
+    async_trace(result == ISSSwitchResultSuccess ? "confirmed" :
+        result == ISSSwitchResultAlreadyReached ? "already-reached" :
+        result == ISSSwitchResultTimedOut ? "timeout" : "finished", -1);
     ISSAsyncRequest request = asyncRequest;
     memset(&asyncRequest, 0, sizeof(asyncRequest));
     if (result == ISSSwitchResultSuccess) {
@@ -205,7 +253,12 @@ static void async_tick(void) {
         asyncStep.nextPhase = phase == kCGSGesturePhaseChanged
             ? kCGSGesturePhaseEnded : kCGSGesturePhaseNone;
         if (phase == kCGSGesturePhaseEnded) {
-            asyncStep.deadline = async_now() + kSpaceSwitchConfirmationTimeout;
+            double now = async_now();
+            asyncStep.deadline = asyncRequest.retryDeadline
+                ? asyncRequest.retryDeadline : now + kSpaceSwitchConfirmationTimeout;
+            asyncStep.retryAt = now + asyncStep.retryInterval;
+            asyncStep.quietSince = now;
+            async_trace("ended", -1);
             // A newer display request must not wait for the old display.
             if (!asyncRequest.id || strcmp(asyncRequest.snapshot.info.displayID,
                                            asyncStep.snapshot.info.displayID) != 0) {
@@ -214,7 +267,7 @@ static void async_tick(void) {
                 return;
             }
         }
-        async_schedule(phase == kCGSGesturePhaseEnded ? 0 : 0.01);
+        async_schedule(phase == kCGSGesturePhaseEnded ? 0 : async_phase_delay());
         return;
     }
     if (!asyncRequest.id) { async_clear_step(); return; }
@@ -225,24 +278,76 @@ static void async_tick(void) {
     const ISSAsyncSnapshot *expected = asyncStep.active ? &asyncStep.snapshot : &asyncRequest.snapshot;
     bool valid = async_same_topology(&current, expected) && !async_overview_active();
     unsigned int observed = current.info.currentIndex;
+    bool animationKnown = current.animationKnown;
+    bool animating = current.animating;
     async_release_snapshot(&current);
     if (!valid) {
         async_clear_step(); async_finish(ISSSwitchResultCancelled); return;
     }
     if (asyncStep.active) {
+        double now = async_now();
+        if (observed != asyncStep.lastObserved) {
+            asyncStep.lastObserved = observed;
+            asyncStep.quietSince = now;
+            async_trace("observed", (int)observed);
+        }
+        if (animating) {
+            // Retain the step even if Current Space already names its target.
+            // A later reversal must wait for this transition to stop accepting
+            // or consuming its original gesture.
+            asyncStep.quietSince = now;
+            if (now >= asyncStep.deadline) {
+                async_clear_step(); async_finish(ISSSwitchResultTimedOut); return;
+            }
+            async_schedule(kAsyncPollInterval); return;
+        }
         if (observed == asyncStep.target) {
+            double quiet = animationKnown ? kAsyncPollInterval : asyncStep.settleInterval;
+            if (now - asyncStep.quietSince + 1e-9 < quiet) {
+                async_schedule(kAsyncPollInterval); return;
+            }
+            if (observed != asyncRequest.snapshot.info.currentIndex) asyncRequest.moved = true;
             asyncRequest.snapshot.info.currentIndex = observed;
-            asyncRequest.moved = true;
+            asyncRequest.retries = 0;
+            asyncRequest.retryDeadline = 0;
             async_clear_step();
         } else if (observed != asyncStep.snapshot.info.currentIndex) {
             async_clear_step(); async_finish(ISSSwitchResultCancelled); return;
-        } else if (async_now() >= asyncStep.deadline) {
-            async_clear_step(); async_finish(ISSSwitchResultTimedOut); return;
+        } else if (animationKnown && now >= asyncStep.retryAt && observed == asyncRequest.target) {
+            // The latest goal supersedes a step that never took effect. Waiting
+            // for that obsolete step's full timeout would block valid input.
+            asyncRequest.snapshot.info.currentIndex = observed;
+            asyncRequest.retries = 0;
+            asyncRequest.retryDeadline = 0;
+            async_trace("obsolete-step", (int)observed);
+            async_clear_step();
+        } else if (now >= asyncStep.deadline) {
+            async_clear_step();
+            async_finish(observed == asyncRequest.target
+                ? ISSSwitchResultAlreadyReached : ISSSwitchResultTimedOut);
+            return;
+        } else if (now >= asyncStep.retryAt &&
+                   animationKnown &&
+                   asyncRequest.source == ISSSwitchSourceExplicit &&
+                   asyncRequest.retries < kAsyncMaxRetries) {
+            // Retry only an explicit still-unfulfilled goal from an observed
+            // unchanged Space. Never replay a consumed physical/Cmd-Tab gesture.
+            asyncRequest.retryDeadline = asyncStep.deadline;
+            asyncRequest.retries++;
+            asyncRequest.snapshot.info.currentIndex = observed;
+            async_trace("retry", (int)observed);
+            async_clear_step();
         } else {
-            async_schedule(kSpaceSwitchPollInterval); return;
+            async_schedule(kAsyncPollInterval); return;
         }
     } else if (observed != asyncRequest.snapshot.info.currentIndex) {
         async_finish(ISSSwitchResultCancelled); return;
+    }
+    if (animating) {
+        if (async_now() >= asyncRequest.waitDeadline) {
+            async_finish(ISSSwitchResultTimedOut); return;
+        }
+        async_schedule(kAsyncPollInterval); return;
     }
     if (observed == asyncRequest.target) {
         async_finish(asyncRequest.moved ? ISSSwitchResultSuccess : ISSSwitchResultAlreadyReached);
@@ -254,13 +359,17 @@ static void async_tick(void) {
     asyncStep.direction = asyncRequest.target > observed ? ISSDirectionRight : ISSDirectionLeft;
     asyncStep.target = asyncStep.direction == ISSDirectionRight ? observed + 1 : observed - 1;
     asyncStep.velocity = asyncRequest.velocity;
+    asyncStep.lastObserved = observed;
+    asyncStep.settleInterval = async_settle_interval();
+    asyncStep.retryInterval = async_retry_interval();
     if (!iss_post_dock_swipe_at(kCGSGesturePhaseBegan, asyncStep.direction, asyncStep.velocity, &asyncStep.snapshot.location)) {
         async_clear_step(); async_finish(ISSSwitchResultPostFailed); return;
     }
     if (asyncRequest.source == ISSSwitchSourceTrackpad)
         trackpad_request_did_post(asyncRequest.id);
+    async_trace("began", (int)observed);
     asyncStep.nextPhase = kCGSGesturePhaseChanged;
-    async_schedule(0.01);
+    async_schedule(async_phase_delay());
 }
 static uint64_t async_submit(bool relative, unsigned int value, ISSSwitchSource source,
                              ISSSwitchCompletion completion) {
@@ -277,6 +386,7 @@ static uint64_t async_submit(bool relative, unsigned int value, ISSSwitchSource 
     request.reduceMotion = statisticsReduceMotion;
     request.recordStatistics = statisticsEnabled;
     request.statisticsGeneration = statisticsGeneration;
+    request.waitDeadline = async_now() + kSpaceSwitchConfirmationTimeout;
     if (!async_snapshot(&request.snapshot)) {
         async_complete(request, ISSSwitchResultInvalidTarget); return id;
     }
@@ -303,6 +413,7 @@ static uint64_t async_submit(bool relative, unsigned int value, ISSSwitchSource 
     request.velocity = iss_horizontal_switch_velocity(request.velocity);
     ISSAsyncRequest previous = asyncRequest;
     asyncRequest = request;
+    async_trace("submitted", (int)request.snapshot.info.currentIndex);
     if (asyncStep.active && asyncStep.nextPhase == kCGSGesturePhaseNone
         && !async_same_topology(&asyncStep.snapshot, &request.snapshot)) {
         async_clear_step();

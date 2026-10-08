@@ -52,9 +52,10 @@ typedef struct {
  */
 bool iss_switch(ISSDirection direction);
 
-/** macOS 27+ asynchronous app path. All calls and completions run on the main
+/** Asynchronous app path on all supported macOS versions. Gesture payloads
+ * remain OS-specific. All calls and completions run on the main
  * thread. A nonzero ID means accepted, not completed. Zero means unavailable
- * (legacy OS, wrong thread, or reentrant submission from a completion).
+ * (wrong thread, missing permissions, or reentrant submission from a completion).
  * Completions may occur before submission returns. Do not reenter ISS from a
  * completion; dispatch follow-up work to the main queue instead.
  */
