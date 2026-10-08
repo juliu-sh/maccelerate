@@ -115,7 +115,7 @@ int main(void) {
     CGEventSetIntegerValueField(middle, kCGEventSourceUnixProcessID, 4242);
     trusted = false;
     assert(eventTapCallback(NULL, kCGEventOtherMouseDown, middle, NULL) == middle);
-    assert(inputRequiresRestart && !globalTap && !verticalClickGuard.blockedClickPID);
+    assert(inputRequiresRestart && !globalTap && !verticalClickGuard.blockedClicks[0].pid);
     CFRelease(middle);
     iss_destroy();
     puts("PASS: permission grant, revoke, stale trust, timeout storm, failed connection and pass-through; no desktop input");

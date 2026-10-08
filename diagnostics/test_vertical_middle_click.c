@@ -116,6 +116,8 @@ int main(int argc, char **argv) {
     reset(); vertical(1); vertical(2);
     assert(!mouse(kCGEventOtherMouseDown, 2, 4242));
     test_now += 1.1;
+    assert(!mouse(kCGEventOtherMouseUp, 2, 4242));
+    assert(mouse(kCGEventOtherMouseDown, 2, 4242));
     assert(mouse(kCGEventOtherMouseUp, 2, 4242));
 
     // A touch sequence without movement and orphan Changed/Ended are not swipes.
@@ -137,6 +139,39 @@ int main(int argc, char **argv) {
     assert(!mouse(kCGEventOtherMouseDown, 2, 4242));
     assert(mouse(kCGEventOtherMouseUp, 2, 9876));
     assert(!mouse(kCGEventOtherMouseUp, 2, 4242));
+
+    // Overlapping software sources need independent Down/Up pairing.
+    reset(); vertical(1); vertical(2);
+    assert(!mouse(kCGEventOtherMouseDown, 2, 4242));
+    assert(!mouse(kCGEventOtherMouseDown, 2, 9876));
+    vertical(4); test_now += .3;
+    assert(!mouse(kCGEventOtherMouseUp, 2, 4242));
+    assert(!mouse(kCGEventOtherMouseUp, 2, 9876));
+    assert(mouse(kCGEventOtherMouseDown, 2, 4242));
+    assert(mouse(kCGEventOtherMouseUp, 2, 4242));
+
+    // Duplicate Down and concurrent clients must not overwrite each other.
+    reset(); vertical(1); vertical(2);
+    assert(!mouse(kCGEventOtherMouseDown, 2, 4242));
+    assert(!mouse(kCGEventOtherMouseDown, 2, 4242));
+    assert(!mouse(kCGEventOtherMouseUp, 2, 4242));
+    assert(!mouse(kCGEventOtherMouseUp, 2, 4242));
+    reset(); vertical(1); vertical(2);
+    for (int pid = 10000; pid < 10008; pid++) assert(!mouse(kCGEventOtherMouseDown, 2, pid));
+    // At capacity, allow the complete extra click rather than dropping a Down
+    // whose Up cannot be safely paired. Other sources remain protected.
+    assert(mouse(kCGEventOtherMouseDown, 2, 10008));
+    assert(mouse(kCGEventOtherMouseUp, 2, 10008));
+    for (int pid = 10000; pid < 10008; pid++) assert(!mouse(kCGEventOtherMouseUp, 2, pid));
+
+    // Long synthetic holds cannot leak a later Up-only close action.
+    reset(); vertical(1); vertical(2); vertical(4);
+    assert(!mouse(kCGEventOtherMouseDown, 2, 4242));
+    test_now += 10;
+    assert(!mouse(kCGEventOtherMouseDragged, 2, 4242));
+    assert(!mouse(kCGEventOtherMouseUp, 2, 4242));
+    assert(mouse(kCGEventOtherMouseDown, 2, 4242));
+    assert(mouse(kCGEventOtherMouseUp, 2, 4242));
 
     // Release-time boundary and cancellation both close the physical swipe.
     reset(); vertical(1); vertical(2); vertical(8); test_now += .149;

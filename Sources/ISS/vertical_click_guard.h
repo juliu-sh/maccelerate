@@ -1,16 +1,17 @@
 #include <math.h>
+#include <limits.h>
 
 // Correlate synthesized middle clicks with an accelerated physical overview
 // swipe. Main-runloop state only; never change the native vertical gesture.
+enum { kVerticalClickSourceCount = 8 };
 static struct {
     bool tracking, moved;
-    double activityDeadline, releaseDeadline, clickDeadline;
-    pid_t blockedClickPID;
+    double activityDeadline, releaseDeadline;
+    struct { pid_t pid; unsigned pending; } blockedClicks[kVerticalClickSourceCount];
     CGEventTimestamp endedTimestamp;
 } verticalClickGuard;
 static const double kVerticalClickIdleTimeout = 1.0;
 static const double kVerticalClickReleaseWindow = 0.15;
-static const double kVerticalClickPairTimeout = 0.75;
 
 static double vertical_click_now(void) {
     struct timespec time;
@@ -24,9 +25,6 @@ static void vertical_click_expire(double now) {
     if (verticalClickGuard.tracking && now >= verticalClickGuard.activityDeadline) {
         verticalClickGuard.tracking = false;
         verticalClickGuard.moved = false;
-    }
-    if (verticalClickGuard.blockedClickPID && now >= verticalClickGuard.clickDeadline) {
-        verticalClickGuard.blockedClickPID = 0;
     }
 }
 static void vertical_click_observe(CGEventRef event, bool accelerated) {
@@ -77,16 +75,29 @@ static bool vertical_click_should_suppress(CGEventType type, CGEventRef event) {
     if (pid <= 0) return false; // Physical mice keep their normal middle button.
     const double now = vertical_click_now();
     vertical_click_expire(now);
+    size_t slot = kVerticalClickSourceCount, freeSlot = kVerticalClickSourceCount;
+    for (size_t i = 0; i < kVerticalClickSourceCount; i++) {
+        if (verticalClickGuard.blockedClicks[i].pid == pid) slot = i;
+        else if (!verticalClickGuard.blockedClicks[i].pid && freeSlot == kVerticalClickSourceCount) freeSlot = i;
+    }
     if (type == kCGEventOtherMouseDown) {
         const bool swipe = verticalClickGuard.tracking && verticalClickGuard.moved;
         if (swipe || now < verticalClickGuard.releaseDeadline) {
-            verticalClickGuard.blockedClickPID = pid;
-            verticalClickGuard.clickDeadline = now + kVerticalClickPairTimeout;
+            if (slot == kVerticalClickSourceCount) slot = freeSlot;
+            // Do not consume a Down unless its matching Up can be tracked.
+            if (slot == kVerticalClickSourceCount || verticalClickGuard.blockedClicks[slot].pending == UINT_MAX) return false;
+            verticalClickGuard.blockedClicks[slot].pid = pid;
+            verticalClickGuard.blockedClicks[slot].pending++;
             return true;
         }
-        if (verticalClickGuard.blockedClickPID == pid) verticalClickGuard.blockedClickPID = 0;
-    } else if (pid == verticalClickGuard.blockedClickPID) {
-        if (type == kCGEventOtherMouseUp) verticalClickGuard.blockedClickPID = 0;
+        // A new valid Down starts a new click, including after a lost Up.
+        if (slot < kVerticalClickSourceCount) memset(&verticalClickGuard.blockedClicks[slot], 0,
+                            sizeof(verticalClickGuard.blockedClicks[slot]));
+    } else if (slot < kVerticalClickSourceCount) {
+        // Keep the suppressed-Up marker beyond the swipe timeout. It does
+        // not block later complete clicks: their new Down clears it above.
+        if (type == kCGEventOtherMouseUp && --verticalClickGuard.blockedClicks[slot].pending == 0)
+            memset(&verticalClickGuard.blockedClicks[slot], 0, sizeof(verticalClickGuard.blockedClicks[slot]));
         return true;
     }
     return false;
