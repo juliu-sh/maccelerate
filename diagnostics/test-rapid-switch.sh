@@ -8,10 +8,10 @@ clang -std=c11 -Wall -Wextra -Werror -Wno-pointer-bool-conversion -Wno-ignored-a
   -framework ApplicationServices -framework CoreFoundation -framework IOKit -o "$test_dir/rapid"
 failed=0
 for mode in 0 1; do
-  for scenario in 0 1 2 3 4 5 6 8 9 10; do
+  for scenario in 0 1 2 3 4 5 6 8 9 10 11 12; do
     "$test_dir/rapid" "$mode" "$scenario" || failed=1
   done
-  for scenario in 0 1 2 4 6 7; do
+  for scenario in 0 1 2 4 6 7 11 12; do
     "$test_dir/rapid" "$mode" "$scenario" fallback || failed=1
   done
 done

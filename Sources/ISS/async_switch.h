@@ -27,6 +27,7 @@ typedef struct {
     ISSDirection direction;
     double velocity, deadline, retryAt, quietSince, settleInterval, retryInterval;
     unsigned int lastObserved;
+    bool lastAnimating;
     CGSGesturePhase nextPhase;
 } ISSAsyncStep;
 static ISSAsyncRequest asyncRequest;
@@ -48,11 +49,13 @@ static double async_now(void) {
 static void async_trace(const char *action, int observed) {
     const char *enabled = getenv("MACCELERATE_SWITCH_TRACE");
     if (!enabled || strcmp(enabled, "1")) return;
-    fprintf(stderr, "[ISS_SWITCH] t=%.6f action=%s request=%llu source=%u target=%u observed=%d step=%u retries=%u\n",
+    fprintf(stderr, "[ISS_SWITCH] t=%.6f action=%s request=%llu source=%u target=%u observed=%d step=%u retries=%u readiness=%d animating=%d\n",
         async_now(), action, (unsigned long long)asyncRequest.id,
         (unsigned int)asyncRequest.source, asyncRequest.target + 1,
         observed < 0 ? -1 : observed + 1,
-        asyncStep.active ? asyncStep.target + 1 : 0, asyncRequest.retries);
+        asyncStep.active ? asyncStep.target + 1 : 0, asyncRequest.retries,
+        asyncStep.active ? asyncStep.snapshot.animationKnown : asyncRequest.snapshot.animationKnown,
+        asyncStep.active ? asyncStep.lastAnimating : asyncRequest.snapshot.animating);
 }
 static double async_phase_delay(void) {
     return iss_requires_event_augmentation() ? 0.01 : 0;
@@ -286,6 +289,10 @@ static void async_tick(void) {
     }
     if (asyncStep.active) {
         double now = async_now();
+        if (animating != asyncStep.lastAnimating) {
+            asyncStep.lastAnimating = animating;
+            async_trace(animating ? "animation-busy" : "animation-idle", (int)observed);
+        }
         if (observed != asyncStep.lastObserved) {
             asyncStep.lastObserved = observed;
             asyncStep.quietSince = now;
@@ -323,8 +330,9 @@ static void async_tick(void) {
             async_clear_step();
         } else if (now >= asyncStep.deadline) {
             async_clear_step();
-            async_finish(observed == asyncRequest.target
-                ? ISSSwitchResultAlreadyReached : ISSSwitchResultTimedOut);
+            // An unresolved older gesture can still arrive after this deadline.
+            // Even a currently visible newer goal is not a confirmed outcome.
+            async_finish(ISSSwitchResultTimedOut);
             return;
         } else if (now >= asyncStep.retryAt &&
                    animationKnown &&

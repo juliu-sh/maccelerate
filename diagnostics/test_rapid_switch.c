@@ -56,6 +56,16 @@ static uint64_t request(ISSDirection direction) {
     }
     return id;
 }
+static void expect_reached(uint64_t id) {
+    assert(id);
+    bool found = false;
+    for (unsigned i = 0; i < completion_count; i++) {
+        if (completed_ids[i] != id) continue;
+        assert(completed_results[i] == ISSSwitchResultSuccess || completed_results[i] == ISSSwitchResultAlreadyReached);
+        found = true;
+    }
+    assert(found);
+}
 int main(int argc, char **argv) {
     assert(argc == 3 || argc == 4);
     animation_symbol_available = argc == 3;
@@ -85,10 +95,7 @@ int main(int argc, char **argv) {
         settled();
         expect(second, ISSSwitchResultSuperseded);
         assert(actual[0] == 1 && clock_now < 101);
-        for (unsigned i = 0; i < completion_count; i++) {
-            if (completed_ids[i] == latest)
-                assert(completed_results[i] == ISSSwitchResultSuccess || completed_results[i] == ISSSwitchResultAlreadyReached);
-        }
+        expect_reached(latest);
         (void)first;
     } else if (test == 3) {
         prepare(.60, 0);
@@ -112,7 +119,7 @@ int main(int argc, char **argv) {
         assert(actual[0] == 1 && clock_now < 101.5);
         for (unsigned i = 0; i < completion_count; i++)
             assert(completed_results[i] != ISSSwitchResultTimedOut);
-        (void)latest;
+        expect_reached(latest);
     } else if (test == 5) {
         unsigned cases = 0;
         for (uint32_t seed = 1; seed <= 128; seed++) {
@@ -144,9 +151,7 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "FAIL seed=%u actual=%d goal=%u\n", seed, actual[0], goal);
                 return 1;
             }
-            for (unsigned i = 0; i < completion_count; i++)
-                if (completed_ids[i] == latest)
-                    assert(completed_results[i] == ISSSwitchResultSuccess || completed_results[i] == ISSSwitchResultAlreadyReached);
+            expect_reached(latest);
             cases++;
         }
         printf("PASS: mode=%s %u seeded bursts, 6144 requests across presets, bounds, absolute targets and delayed notifications\n", argv[1], cases);
@@ -210,6 +215,27 @@ int main(int argc, char **argv) {
         uint64_t next = request(ISSDirectionRight);
         settled(); expect(next, ISSSwitchResultSuccess);
         assert(actual[0] == 1 && statistics_total() == 1);
+    } else if (test == 11) {
+        // An unobserved transition can arrive even after the confirmation
+        // deadline. The observed reverse goal must not be reported as reached.
+        prepare(4, 3.5);
+        request(ISSDirectionRight); until(100.08);
+        uint64_t id = request(ISSDirectionLeft);
+        settled(); expect(id, ISSSwitchResultTimedOut);
+        assert(actual[0] == 0 && pending_at && !switch_count && !statistics_total());
+        until(104.10);
+        assert(actual[0] == 1 && !pending_at);
+        animation_duration = .10; index_delay = .05;
+        uint64_t next = request(ISSDirectionLeft);
+        settled(); expect(next, ISSSwitchResultSuccess);
+        assert(actual[0] == 0 && switch_count == 1 && statistics_total() == 1);
+    } else if (test == 12) {
+        for (ISSSwitchSource source = ISSSwitchSourceTrackpad; source <= ISSSwitchSourceCmdTab; source++) {
+            prepare(0, 0); drop_next = 100;
+            uint64_t id = iss_request_switch(ISSDirectionRight, source, completed);
+            settled(); expect(id, ISSSwitchResultTimedOut);
+            assert(post_count == 3 && ignored == 1 && !accepted && !switch_count && !statistics_total());
+        }
     } else return 2;
     printf("PASS: payload mode=%s rapid scenario=%d; observed=%d accepted=%u ignored=%u duration=%.3f; no desktop input\n",
            argv[1], test, actual[0] + 1, accepted, ignored, clock_now - 100);
