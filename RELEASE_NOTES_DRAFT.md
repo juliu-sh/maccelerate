@@ -1,25 +1,45 @@
-# Maccelerate 1.1.20 — Free release (build 31)
+# Maccelerate 1.3.0, Free release, build 32
 
-Maccelerate is a free, MIT-licensed macOS menu bar app based on InstantSpaceSwitcher by jurplel.
+Appearance settings and Statistics are now included in Free. Maccelerate remains
+free and MIT licensed, with no account, purchase or license activation required.
 
-## Changes
+## New in Free
 
-- Restore distinct Fast, Faster and Instant Space-switching presets on macOS 27.0 build 26A428.
-- Add neutral trackpad gesture completion and recovery after one second of missing gesture activity on that build.
-- Handle rejected and interrupted trackpad switch requests without repeatedly submitting the same swipe.
-- Make missing or stopped Accessibility access easier to see in the settings window, including when the window is inactive.
-- Remove local build paths and debug/object-file records from distributed executables.
+- Appearance settings with an optional Space indicator, configurable display duration and a preview.
+- A Statistics tab with local counts by action and speed, estimated time saved, and pause and reset controls.
+
+Statistics are enabled by default and stay on your Mac. They store aggregate
+counts, not typed text, app names, window contents or an event timeline. The time
+saved figure is an estimate based on reference animation durations. You can pause
+recording or reset the stored counts in Settings. See [PRIVACY.md](https://github.com/juliu-sh/maccelerate/blob/v1.3.0/PRIVACY.md).
+
+## Fixes
+
+- Apply the macOS-27 Space-switching speed and trackpad recovery fixes on macOS 27 and later. Minor versions such as 27.0.1 and Apple build numbers no longer disable them.
+- Suppress accidental software-generated middle clicks during accelerated vertical swipes into Mission Control and App Exposé, including three-finger taps interpreted by Supercharge. Keep suppressed press and release events paired by their source.
+- Preserve hardware middle clicks and deliberate taps outside the guarded gesture. Clear the guard when input processing stops or access changes.
+
+macOS 26 and earlier retain the existing Space-switching path. The vertical
+middle-click correction applies on all supported macOS versions.
 
 ## Compatibility
 
-The updated speed and trackpad recovery behavior is currently limited to macOS 27.0 build 26A428. Other macOS 27 builds retain their existing behavior. macOS 26 and earlier retain the existing switching path.
+Maccelerate uses some undocumented macOS behavior. Automated tests cover version
+routing, gesture completion and recovery, malformed payloads, permission changes,
+and accidental middle-click pairing. Live coverage across macOS-27 builds,
+multiple displays, full-screen Spaces and rapid gesture sequences remains
+limited. This release does not establish that every intermittent trackpad failure
+is resolved.
 
-Automated checks cover gesture completion, interrupted requests, recovery timing, malformed payloads and the macOS 26 reference event sequence. Full live validation across multiple displays, full-screen Spaces and rapid gesture sequences remains incomplete. These changes do not establish that every intermittent trackpad failure is resolved.
-
-The app uses some undocumented macOS behavior, so compatibility can vary between system builds. If the settings window reports that input has stopped or access is unavailable, check Accessibility access, then quit and reopen Maccelerate.
+If Settings reports that input has stopped or access is unavailable, check
+Accessibility access, then quit and reopen Maccelerate.
 
 ## Installation
 
-Download the signed and notarized universal DMG for Apple Silicon and Intel, open it and drag Maccelerate to Applications. Minimum system version: macOS 13. Grant Accessibility and, if requested, Input Monitoring access.
+Download the signed and notarized universal DMG for Apple Silicon and Intel,
+open it and drag Maccelerate to Applications. Minimum system version is macOS 13.
+Grant Accessibility and, if requested, Input Monitoring access.
 
-Existing installations can use **Check for Updates**. Automatic update checks remain off by default. The app includes ISSCli and the Maccelerate, InstantSpaceSwitcher and Sparkle license notices.
+Existing installations can use **Check for Updates**. Automatic update checks
+remain off by default. The app includes ISSCli and the Maccelerate,
+InstantSpaceSwitcher and Sparkle license notices.

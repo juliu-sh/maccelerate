@@ -34,15 +34,15 @@ python3 diagnostics/test-release.py
 
 The app is in `build/Maccelerate.app`; the DMG is in `build/Maccelerate-<version>.dmg`. Sparkle is pinned in `Package.resolved`, and licenses are bundled inside the app. The DMG shows only Maccelerate and the Applications shortcut.
 
-Current source also includes Appearance and local Statistics in Free; these are not yet in the published 1.1.20 release.
+Version 1.3.0 includes Appearance settings, the optional Space indicator and local Statistics in Free.
 
-Current source builds apply the horizontal speed presets and trackpad recovery on macOS 27 and later, based on the major product version. Minor updates and Apple build numbers do not disable that path. macOS 26 and earlier keep the existing switching behavior. The published 1.1.20 build still limits these changes to macOS 27.0 build 26A428. Live validation on later system versions remains incomplete.
+The horizontal speed presets and trackpad recovery apply on macOS 27 and later, based on the major product version. Minor updates and Apple build numbers do not disable that path. macOS 26 and earlier keep the existing Space-switching path. Accelerated vertical swipes also suppress accidental software-generated middle clicks during the gesture and a short release window, including three-finger taps interpreted by apps such as Supercharge. Live validation across system versions and display configurations remains limited.
 
 Own builds use the separate bundle ID `com.interversehq.Maccelerate.source`, a local/ad hoc signature, and no official update feed. They may require manual approval on another Mac. Quit the official app before running your own build so two event taps do not process input at once. Rebranding or redistributing a fork requires your own signing and update configuration.
 
 ## Official releases
 
-Official builds use Developer ID signing, notarization, GitHub Releases and an optional Homebrew tap. The app is free; no account, purchase, or license activation is required. Only official builds use the configured HTTPS update feed. See [RELEASING.md](RELEASING.md) for the release process. Download [Free 1.1.20](https://github.com/juliu-sh/maccelerate/releases/tag/v1.1.20), or install via `brew install --cask juliu-sh/tap/maccelerate`. If input processing stops after permission changes, check access, then quit and reopen Maccelerate.
+Official builds use Developer ID signing, notarization, GitHub Releases and an optional Homebrew tap. The app is free; no account, purchase, or license activation is required. Only official builds use the configured HTTPS update feed. See [RELEASING.md](RELEASING.md) for the release process. Download [Free 1.3.0](https://github.com/juliu-sh/maccelerate/releases/tag/v1.3.0), or install via `brew install --cask juliu-sh/tap/maccelerate`. If input processing stops after permission changes, check access, then quit and reopen Maccelerate.
 
 ## License and credits
 
