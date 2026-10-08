@@ -24,12 +24,54 @@ for arg in "$@"; do
 done
 
 PRODUCT_NAME="Maccelerate"
-APP_NAME="Maccelerate"
+APP_NAME="Maccelerate Source"
+if [[ "${MACCELERATE_DISTRIBUTION:-0}" == "1" ]]; then
+  APP_NAME="Maccelerate"
+fi
 BUILD_DIR="build"
 
-if [[ "$CLEAN" == true ]]; then
+# Check signing before cleaning or replacing any existing build.
+SIGNING_IDENTITY="${MACCELERATE_CODESIGN_IDENTITY:-${ISS_CODESIGN_IDENTITY:-}}"
+if [[ "${MACCELERATE_DISTRIBUTION:-0}" == "1" && "${SIGNING_IDENTITY}" != "Developer ID Application:"* ]]; then
+  echo "Distribution requires MACCELERATE_CODESIGN_IDENTITY with a Developer ID Application identity." >&2
+  exit 1
+fi
+if [[ -z "${SIGNING_IDENTITY}" ]]; then
+  echo "Set MACCELERATE_CODESIGN_IDENTITY to an available stable identity or explicitly use - for an ad-hoc source build." >&2
+  exit 1
+fi
+if [[ "${SIGNING_IDENTITY}" != "-" ]] && ! security find-identity -v -p codesigning | grep -Fq "\"${SIGNING_IDENTITY}\""; then
+  echo "Signing identity unavailable: ${SIGNING_IDENTITY}" >&2
+  echo "Select an available stable identity, or explicitly set MACCELERATE_CODESIGN_IDENTITY=- for an ad-hoc source build." >&2
+  echo "Ad-hoc source rebuilds can lose Accessibility access. Never replace the official app with a source build." >&2
+  exit 1
+fi
+
+if pgrep -f 'build/Maccelerate( Source)?\.app/Contents/MacOS/Maccelerate$' >/dev/null; then
+  echo "Quit the running build before rebuilding or cleaning its app bundle." >&2
+  exit 1
+fi
+
+if [[ "$CLEAN" == true && -d "${BUILD_DIR}" ]]; then
+  # Preserve candidates and app snapshots as a single archive, never another app.
+  mkdir -p build-backups
+  BUILD_BACKUP="build-backups/build-$(date +%Y%m%d-%H%M%S)-$$.zip"
+  echo "Archiving previous build to ${BUILD_BACKUP}..."
+  ditto -c -k --sequesterRsrc --keepParent "${BUILD_DIR}" "${BUILD_BACKUP}"
+  unzip -tq "${BUILD_BACKUP}"
   echo "Cleaning build directory..."
   rm -rf "${BUILD_DIR}"
+fi
+
+# Retire the other channel before compiling, so it cannot be registered later.
+OTHER_APP_NAME="Maccelerate"
+if [[ "${APP_NAME}" == "Maccelerate" ]]; then
+  OTHER_APP_NAME="Maccelerate Source"
+fi
+OTHER_APP_BUNDLE="${BUILD_DIR}/${OTHER_APP_NAME}.app"
+if [[ -d "${OTHER_APP_BUNDLE}" ]]; then
+  OTHER_BACKUP="build-backups/${OTHER_APP_NAME}-$(date +%Y%m%d-%H%M%S)-$$.zip"
+  python3 dist/archive-app.py "${OTHER_APP_BUNDLE}" "${OTHER_BACKUP}" --retire
 fi
 
 BUILD_PATH="${BUILD_DIR}/${BUILD_CONFIG}"
@@ -111,6 +153,7 @@ if [[ "${MACCELERATE_DISTRIBUTION:-0}" == "1" ]]; then
 else
   /usr/libexec/PlistBuddy -c 'Add :MaccelerateBuildChannel string source' "${APP_BUNDLE}/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.interversehq.Maccelerate.source' "${APP_BUNDLE}/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c 'Set :CFBundleName Maccelerate Source' "${APP_BUNDLE}/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Maccelerate Source' "${APP_BUNDLE}/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c 'Delete :SUFeedURL' "${APP_BUNDLE}/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c 'Delete :SUPublicEDKey' "${APP_BUNDLE}/Contents/Info.plist"
@@ -155,9 +198,6 @@ echo "Injecting git SHA: ${GIT_SHA}"
 python3 dist/public_boundary.py --app "${APP_BUNDLE}"
 
 echo ""
-DEFAULT_SIGNING_IDENTITY="InstantSpaceSwitcher-27 Stable Local Code Signing"
-SIGNING_IDENTITY="${MACCELERATE_CODESIGN_IDENTITY:-${ISS_CODESIGN_IDENTITY:-${DEFAULT_SIGNING_IDENTITY}}}"
-
 if [[ "${MACCELERATE_DISTRIBUTION:-0}" == "1" ]]; then
   if [[ "${SIGNING_IDENTITY}" != "Developer ID Application:"* ]]; then
     echo "Distribution requires MACCELERATE_CODESIGN_IDENTITY with a Developer ID Application identity." >&2
@@ -175,8 +215,8 @@ elif security find-identity -v -p codesigning | grep -Fq "\"${SIGNING_IDENTITY}\
   echo "Signing with stable identity: ${SIGNING_IDENTITY}"
   ./dist/sign-app.sh "${APP_BUNDLE}" "${SIGNING_IDENTITY}"
 else
-  echo "Signing identity unavailable; using ad-hoc signing for local distribution."
-  ./dist/sign-app.sh "${APP_BUNDLE}" -
+  echo "Signing identity became unavailable; refusing an implicit ad-hoc fallback." >&2
+  exit 1
 fi
 
 echo ""

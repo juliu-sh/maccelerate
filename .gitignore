@@ -25,3 +25,4 @@ dist/Maccelerate.icns
 *.enc
 *.dmg
 *.zip
+build-backups/

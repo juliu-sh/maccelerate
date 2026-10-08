@@ -28,17 +28,17 @@ Install a matching full Xcode toolchain, then run:
 bash diagnostics/test-swift.sh
 python3 diagnostics/test-public-boundary.py
 python3 diagnostics/test-release.py
-./dist/build.sh
-./dist/deploy-to-dmg.sh
+MACCELERATE_CODESIGN_IDENTITY=- ./dist/build.sh
+./dist/deploy-to-dmg.sh --source
 ```
 
-The app is in `build/Maccelerate.app`; the DMG is in `build/Maccelerate-<version>.dmg`. Sparkle is pinned in `Package.resolved`, and licenses are bundled inside the app. The DMG shows only Maccelerate and the Applications shortcut.
+The source app is in `build/Maccelerate Source.app`; its DMG is `build/Maccelerate Source-<version>.dmg`. Official releases retain `Maccelerate.app` and their existing download names. Sparkle is pinned in `Package.resolved`, and licenses are bundled inside the app. The DMG shows the app for its channel and the Applications shortcut.
 
 Version 1.3.0 includes Appearance settings, the optional Space indicator and local Statistics in Free.
 
 The horizontal speed presets and trackpad recovery apply on macOS 27 and later, based on the major product version. Minor updates and Apple build numbers do not disable that path. macOS 26 and earlier keep the existing Space-switching path. Accelerated vertical swipes also suppress accidental software-generated middle clicks during the gesture and a short release window, including three-finger taps interpreted by apps such as Supercharge. Live validation across system versions and display configurations remains limited.
 
-Own builds use the separate bundle ID `com.interversehq.Maccelerate.source`, a local/ad hoc signature, and no official update feed. They may require manual approval on another Mac. Quit the official app before running your own build so two event taps do not process input at once. Rebranding or redistributing a fork requires your own signing and update configuration.
+Own builds use the separate name `Maccelerate Source.app`, bundle ID `com.interversehq.Maccelerate.source`, and no official update feed. Never rename a source build to `Maccelerate.app` or install it over the official app. The example explicitly requests ad-hoc signing, which can lose Accessibility access after a rebuild. Set `MACCELERATE_CODESIGN_IDENTITY` to an available stable signing identity for repeat live tests; a missing identity stops the build instead of silently changing the signature. A clean build first archives the previous build in ignored `build-backups/`; switching build channels also archives and removes the other channel's app bundle. Quit the official app before running your own build so two event taps do not process input at once. Rebranding or redistributing a fork requires your own signing and update configuration.
 
 ## Official releases
 

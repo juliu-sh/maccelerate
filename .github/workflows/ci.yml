@@ -31,20 +31,23 @@ jobs:
       - name: Test
         run: |
           bash diagnostics/test-swift.sh
+          python3 diagnostics/test-build-workflow.py
           python3 diagnostics/test-public-boundary.py
           python3 dist/public_boundary.py --history
           python3 diagnostics/test-release.py
       - name: Build app and local DMG
+        env:
+          MACCELERATE_CODESIGN_IDENTITY: "-"
         run: |
           ./dist/build.sh
-          ./dist/deploy-to-dmg.sh
+          ./dist/deploy-to-dmg.sh --source
       - name: Verify bundled licenses, notice, and app signature
         run: |
-          test -f build/Maccelerate.app/Contents/Resources/LICENSE
-          cmp LICENSE build/Maccelerate.app/Contents/Resources/LICENSE
-          cmp LICENSES/InstantSpaceSwitcher-MIT.txt build/Maccelerate.app/Contents/Resources/LICENSES/InstantSpaceSwitcher-MIT.txt
-          cmp NOTICE build/Maccelerate.app/Contents/Resources/NOTICE
-          cmp LICENSES/Sparkle.txt build/Maccelerate.app/Contents/Resources/LICENSES/Sparkle.txt
-          test -d build/Maccelerate.app/Contents/Frameworks/Sparkle.framework
-          python3 dist/public_boundary.py --app build/Maccelerate.app
-          codesign --verify --deep --strict build/Maccelerate.app
+          test -f "build/Maccelerate Source.app"/Contents/Resources/LICENSE
+          cmp LICENSE "build/Maccelerate Source.app"/Contents/Resources/LICENSE
+          cmp LICENSES/InstantSpaceSwitcher-MIT.txt "build/Maccelerate Source.app"/Contents/Resources/LICENSES/InstantSpaceSwitcher-MIT.txt
+          cmp NOTICE "build/Maccelerate Source.app"/Contents/Resources/NOTICE
+          cmp LICENSES/Sparkle.txt "build/Maccelerate Source.app"/Contents/Resources/LICENSES/Sparkle.txt
+          test -d "build/Maccelerate Source.app"/Contents/Frameworks/Sparkle.framework
+          python3 dist/public_boundary.py --app "build/Maccelerate Source.app"
+          codesign --verify --deep --strict "build/Maccelerate Source.app"

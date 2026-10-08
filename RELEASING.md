@@ -45,6 +45,24 @@ OWNER/APP --tap OWNER/homebrew-tap`, and update `SUFeedURL` in `Info.plist` to m
 For an existing update channel, preserve its bundle ID and signing key. Back up
 update keys encrypted outside the repository with `dist/backup-update-key.command`.
 
+## Local builds and backups
+
+Source builds use `Maccelerate Source.app` and a separate bundle ID. Keep them
+separate from `/Applications/Maccelerate.app`. An official update must preserve
+the production bundle ID and Developer ID signing requirement. Before diagnosing
+permission loss, check the running app's path, bundle ID and signing requirement.
+Quit the app before removing or resetting its permission entries.
+
+Save app backups as ZIP archives, not loose `.app` copies or versioned app bundles.
+Use `python3 dist/archive-app.py APP BACKUP.zip` to create a backup and verify
+its restored contents and existing signature without registering another app. Extract into a temporary directory and
+verify the signature and file contents before retiring the original. Do not keep
+extracted verification bundles. Keep local backups outside the public inventory.
+`dist/build.sh --clean` archives the previous build in ignored `build-backups/`
+and verifies the ZIP before cleaning, preserving earlier local candidates.
+Changing build channels also archives and retires the other channel's app.
+Quit any app running from the checkout's build directory before rebuilding it.
+
 ## Prepare and test
 
 1. Increase the app version and build number in `Info.plist`. Builds must exceed
