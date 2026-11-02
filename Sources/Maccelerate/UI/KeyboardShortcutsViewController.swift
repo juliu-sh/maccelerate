@@ -9,21 +9,17 @@ private class RecordingView: NSView {
 final class KeyboardShortcutsViewController: NSViewController {
   private let store = HotkeyStore.shared
   private var cancellables = Set<AnyCancellable>()
+  private let systemSwitch = NSSwitch()
+  private let systemSummary = SettingsDesign.text("", size: 11, color: .secondaryLabelColor)
+  private let additionalSwitch = NSSwitch()
   private let filter = NSSegmentedControl(labels: ["Navigation", "Direct access"],
                                          trackingMode: .selectOne, target: nil, action: nil)
   private let statusLabel = SettingsDesign.text("Click a shortcut to record. Press Esc to cancel.", size: 11, color: .secondaryLabelColor)
+  /// Everything below the global switch; hidden while additional shortcuts are off.
+  private let additionalDetails = SettingsDesign.stack(spacing: 12)
+  private let shortcutRows = SettingsDesign.stack(spacing: 0)
 
-  private let tableView = NSTableView()
-  private let scrollView = NSScrollView()
-
-  private struct ShortcutRow {
-    let identifier: HotkeyIdentifier
-    let name: String
-    var combination: HotkeyCombination
-    var isEnabled: Bool
-  }
-
-  private var shortcuts: [ShortcutRow] = []
+  private var shortcuts: [HotkeyIdentifier] = []
 
   override func loadView() {
     view = RecordingView(frame: NSRect(x: 0, y: 0, width: 500, height: 300))
@@ -32,234 +28,179 @@ final class KeyboardShortcutsViewController: NSViewController {
   override func viewDidLoad() {
     super.viewDidLoad()
 
-    setupTableView()
+    let intro = SettingsDesign.heading("Make it muscle memory.", subtitle: "Your favorite actions, one shortcut away.")
+    let content = SettingsDesign.stack([intro, makeSystemSection(), makeAdditionalSection()], spacing: 18)
+    SettingsDesign.page(content, in: view)
     loadShortcuts()
-    bindStore()
+    // One rebuild per change, after the store has applied it.
+    store.objectWillChange.receive(on: RunLoop.main)
+      .sink { [weak self] _ in self?.loadShortcuts() }
+      .store(in: &cancellables)
+    NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+      .sink { [weak self] _ in self?.loadSystemShortcuts() }
+      .store(in: &cancellables)
   }
 
-  private func setupTableView() {
-    let intro = SettingsDesign.heading("Make it muscle memory.", subtitle: "Your favorite actions, one shortcut away.")
-    filter.selectedSegment = 0
+  override func viewWillAppear() {
+    super.viewWillAppear()
+    loadSystemShortcuts()
+  }
+
+  /// macOS's own shortcuts are edited in System Settings; Maccelerate only
+  /// shows them and decides whether to accelerate them.
+  private func makeSystemSection() -> NSView {
+    systemSwitch.target = self
+    systemSwitch.action = #selector(systemShortcutsChanged)
+    systemSwitch.setAccessibilityLabel("Accelerate macOS shortcuts")
+    systemSummary.lineBreakMode = .byWordWrapping
+    systemSummary.maximumNumberOfLines = 2
+    let title = SettingsDesign.text("Accelerate macOS shortcuts", weight: .medium)
+    let change = NSButton(title: "Change in System Settings…", target: self,
+                          action: #selector(openSystemShortcuts))
+    change.bezelStyle = .inline
+    change.controlSize = .small
+    let texts = SettingsDesign.stack([title, systemSummary, change], spacing: 4)
+    texts.alignment = .leading
+    let row = SettingsDesign.stack([SymbolTile(symbol: "keyboard"), texts, NSView(), systemSwitch],
+                                   vertical: false, spacing: 12)
+    row.alignment = .centerY
+    systemSwitch.setContentHuggingPriority(.required, for: .horizontal)
+    return SettingsDesign.section("macOS shortcuts", content: SettingsDesign.card([row], padding: 12))
+  }
+
+  private func makeAdditionalSection() -> NSView {
+    additionalSwitch.target = self
+    additionalSwitch.action = #selector(additionalShortcutsChanged)
+    additionalSwitch.setAccessibilityLabel("Use additional shortcuts")
+    let toggleRow = SettingsDesign.row("Use additional shortcuts",
+                                       detail: "Your own key combinations, on top of macOS’s.",
+                                       symbol: "command", control: additionalSwitch)
+
     filter.segmentStyle = .rounded
-    filter.controlSize = .large
     filter.target = self
     filter.action = #selector(filterChanged)
     filter.setAccessibilityLabel("Shortcut category")
-    filter.setWidth(144, forSegment: 0)
-    filter.setWidth(144, forSegment: 1)
-
-    let nameColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
-    nameColumn.width = 240
-    nameColumn.minWidth = 180
-    let shortcutColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("shortcut"))
-    shortcutColumn.width = 218
-    shortcutColumn.minWidth = 218
-    shortcutColumn.maxWidth = 218
-    let enabledColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("enabled"))
-    enabledColumn.width = 76
-    enabledColumn.minWidth = 76
-    enabledColumn.maxWidth = 76
-    [nameColumn, shortcutColumn, enabledColumn].forEach { tableView.addTableColumn($0) }
-    tableView.delegate = self
-    tableView.dataSource = self
-    tableView.rowHeight = 58
-    tableView.headerView = nil
-    tableView.selectionHighlightStyle = .none
-    tableView.backgroundColor = .clear
-    tableView.gridStyleMask = [.solidHorizontalGridLineMask]
-    tableView.gridColor = .separatorColor
-    tableView.intercellSpacing = NSSize(width: 0, height: 0)
-    tableView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
-    tableView.setAccessibilityLabel("Keyboard shortcuts")
-
-    scrollView.documentView = tableView
-    scrollView.hasVerticalScroller = true
-    scrollView.autohidesScrollers = true
-    scrollView.drawsBackground = false
-    scrollView.borderType = .noBorder
-    let card = SettingsSurface()
-    SettingsDesign.pin(scrollView, to: card, inset: 10)
-    card.translatesAutoresizingMaskIntoConstraints = false
-
+    filter.setWidth(120, forSegment: 0)
+    filter.setWidth(120, forSegment: 1)
     let reset = SettingsDesign.button("Restore defaults…", target: self, action: #selector(resetAllShortcuts))
-    let bottom = SettingsDesign.stack([statusLabel, NSView(), reset], vertical: false, spacing: 12)
-    let tip = SettingsDesign.text("Turn off any shortcuts you don’t use. Your key combinations stay saved.", size: 11, color: .secondaryLabelColor)
-    [intro, filter, card, bottom, tip].forEach {
-      $0.translatesAutoresizingMaskIntoConstraints = false
-      view.addSubview($0)
+    reset.controlSize = .regular
+    let controls = SettingsDesign.stack([filter, NSView(), reset], vertical: false, spacing: 12)
+
+    let divider = NSBox()
+    divider.boxType = .separator
+    for child in [divider, controls, shortcutRows, statusLabel] {
+      additionalDetails.addArrangedSubview(child)
     }
-    NSLayoutConstraint.activate([
-      intro.topAnchor.constraint(equalTo: view.topAnchor, constant: 26),
-      intro.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 28),
-      intro.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -28),
-      filter.topAnchor.constraint(equalTo: intro.bottomAnchor, constant: 22),
-      filter.leadingAnchor.constraint(equalTo: intro.leadingAnchor),
-      filter.heightAnchor.constraint(equalToConstant: 32),
-      card.topAnchor.constraint(equalTo: filter.bottomAnchor, constant: 18),
-      card.leadingAnchor.constraint(equalTo: intro.leadingAnchor),
-      card.trailingAnchor.constraint(equalTo: intro.trailingAnchor),
-      card.bottomAnchor.constraint(equalTo: bottom.topAnchor, constant: -18),
-      bottom.leadingAnchor.constraint(equalTo: intro.leadingAnchor),
-      bottom.trailingAnchor.constraint(equalTo: intro.trailingAnchor),
-      bottom.bottomAnchor.constraint(equalTo: tip.topAnchor, constant: -16),
-      tip.leadingAnchor.constraint(equalTo: intro.leadingAnchor),
-      tip.trailingAnchor.constraint(equalTo: intro.trailingAnchor),
-      tip.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -26),
-    ])
+    additionalDetails.setCustomSpacing(4, after: controls)
+    additionalDetails.setCustomSpacing(6, after: shortcutRows)
+    for child in [divider, controls, shortcutRows, statusLabel] {
+      child.widthAnchor.constraint(equalTo: additionalDetails.widthAnchor).isActive = true
+    }
+    let content = SettingsDesign.stack([toggleRow, additionalDetails], spacing: 12)
+    for child in [toggleRow, additionalDetails] {
+      child.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
+    }
+    return SettingsDesign.section("Additional shortcuts", content: SettingsDesign.card([content], padding: 12))
+  }
+
+  private func loadSystemShortcuts() {
+    systemSwitch.state = SystemSpaceShortcuts.isAccelerationEnabled ? .on : .off
+    systemSummary.stringValue = SystemSpaceShortcuts.summary(of: SystemSpaceShortcuts.current())
+    (NSApp.delegate as? AppDelegate)?.applySystemShortcuts()
+  }
+
+  @objc private func systemShortcutsChanged(_ sender: NSSwitch) {
+    UserDefaults.standard.set(sender.state == .on, forKey: SystemSpaceShortcuts.enabledKey)
+    (NSApp.delegate as? AppDelegate)?.applySystemShortcuts()
+  }
+
+  @objc private func openSystemShortcuts() {
+    guard let url = URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension")
+    else { return }
+    NSWorkspace.shared.open(url)
+  }
+
+  @objc private func additionalShortcutsChanged(_ sender: NSSwitch) {
+    ShortcutRecorderControl.cancelActiveRecording()
+    store.setAdditionalShortcutsEnabled(sender.state == .on)
   }
 
   @objc private func filterChanged() {
     ShortcutRecorderControl.cancelActiveRecording()
     loadShortcuts()
-    scrollView.contentView.scroll(to: .zero)
   }
 
   private func loadShortcuts() {
+    additionalSwitch.state = store.additionalShortcutsEnabled ? .on : .off
+    additionalDetails.isHidden = !store.additionalShortcutsEnabled
+    if filter.selectedSegment < 0 { filter.selectedSegment = 0 }
     let navigation: [HotkeyIdentifier] = [.left, .right, .lastSpace, .missionControl, .appExpose]
-    let identifiers = filter.selectedSegment == 0 ? navigation : HotkeyIdentifier.allCases.filter { !navigation.contains($0) }
-    shortcuts = identifiers.map { id in
-      ShortcutRow(
-        identifier: id,
-        name: id.displayName,
-        combination: store.combination(for: id),
-        isEnabled: store.isEnabled(id)
-      )
+    shortcuts = filter.selectedSegment == 0 ? navigation : HotkeyIdentifier.allCases.filter { !navigation.contains($0) }
+    shortcutRows.arrangedSubviews.forEach { $0.removeFromSuperview() }
+    for (index, identifier) in shortcuts.enumerated() {
+      if index > 0 {
+        let divider = NSBox()
+        divider.boxType = .separator
+        shortcutRows.addArrangedSubview(divider)
+        divider.widthAnchor.constraint(equalTo: shortcutRows.widthAnchor).isActive = true
+      }
+      let row = makeShortcutRow(identifier, index: index)
+      shortcutRows.addArrangedSubview(row)
+      row.widthAnchor.constraint(equalTo: shortcutRows.widthAnchor).isActive = true
     }
-    tableView.reloadData()
     if let warning = store.conflictWarning { setStatus(warning, error: true) }
   }
 
-  private func bindStore() {
-    store.$leftHotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$rightHotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$missionControlHotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$appExposeHotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space1Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space2Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space3Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space4Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space5Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space6Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space7Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space8Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space9Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space10Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$spaceLastSpaceHotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$enabledStates.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-  }
-}
+  private func makeShortcutRow(_ identifier: HotkeyIdentifier, index: Int) -> NSView {
+    let isEnabled = store.isEnabled(identifier)
+    let name = SettingsDesign.text(identifier.displayName, weight: .medium,
+                                   color: isEnabled ? .labelColor : .disabledControlTextColor)
 
-extension KeyboardShortcutsViewController: NSTableViewDataSource {
-  func numberOfRows(in tableView: NSTableView) -> Int {
-    return shortcuts.count
-  }
-}
-
-extension KeyboardShortcutsViewController: NSTableViewDelegate {
-  func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView?
-  {
-    let shortcut = shortcuts[row]
-
-    if tableColumn?.identifier.rawValue == "enabled" {
-      let cellView = NSTableCellView()
-      let checkbox = NSSwitch()
-      checkbox.target = self
-      checkbox.action = #selector(toggleEnabled(_:))
-      checkbox.setAccessibilityLabel("Enable \(shortcut.name)")
-      checkbox.state = shortcut.isEnabled ? .on : .off
-      checkbox.tag = row
-      checkbox.translatesAutoresizingMaskIntoConstraints = false
-      cellView.addSubview(checkbox)
-
-      NSLayoutConstraint.activate([
-        checkbox.centerXAnchor.constraint(equalTo: cellView.centerXAnchor),
-        checkbox.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
-      ])
-
-      return cellView
-    } else if tableColumn?.identifier.rawValue == "name" {
-      let cellView = NSTableCellView()
-      let textField = SettingsDesign.text(shortcut.name, size: 13, weight: .medium)
-      textField.translatesAutoresizingMaskIntoConstraints = false
-      textField.textColor = shortcut.isEnabled ? .labelColor : .disabledControlTextColor
-      cellView.addSubview(textField)
-      cellView.textField = textField
-
-      NSLayoutConstraint.activate([
-        textField.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 12),
-        textField.trailingAnchor.constraint(equalTo: cellView.trailingAnchor, constant: -4),
-        textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
-      ])
-
-      return cellView
-    } else if tableColumn?.identifier.rawValue == "shortcut" {
-      let cellView = NSView()
-
-      let recorder = ShortcutRecorderControl(frame: NSRect(x: 0, y: 0, width: 150, height: 34))
-      recorder.currentShortcut = shortcut.combination
-      recorder.translatesAutoresizingMaskIntoConstraints = false
-      recorder.isEnabled = shortcut.isEnabled
-      recorder.setAccessibilityLabel("Shortcut for \(shortcut.name)")
-      recorder.onRecordingComplete = { [weak self] combination in
-        self?.handleRecordingResult(combination, for: shortcut.identifier)
-      }
-      recorder.onRecordingCancelled = {
-        print("[KeyboardShortcuts] Recording cancelled")
-      }
-      cellView.addSubview(recorder)
-
-      let resetButton = NSButton(
-        image: NSImage(
-          systemSymbolName: "arrow.counterclockwise", accessibilityDescription: "Reset")!,
-        target: self, action: #selector(resetShortcut(_:)))
-      resetButton.bezelStyle = .rounded
-      resetButton.isBordered = false
-      resetButton.tag = row
-      resetButton.toolTip = "Restore default for \(shortcut.name)"
-      resetButton.setAccessibilityLabel("Restore default for \(shortcut.name)")
-      resetButton.isEnabled = shortcut.isEnabled
-      resetButton.translatesAutoresizingMaskIntoConstraints = false
-      cellView.addSubview(resetButton)
-
-      NSLayoutConstraint.activate([
-        recorder.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 4),
-        recorder.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
-        recorder.widthAnchor.constraint(equalToConstant: 150),
-        recorder.heightAnchor.constraint(equalToConstant: 34),
-
-        resetButton.leadingAnchor.constraint(equalTo: recorder.trailingAnchor, constant: 8),
-        resetButton.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
-        resetButton.widthAnchor.constraint(equalToConstant: 36),
-        resetButton.heightAnchor.constraint(equalToConstant: 36),
-      ])
-
-      return cellView
+    let recorder = ShortcutRecorderControl(frame: NSRect(x: 0, y: 0, width: 150, height: 28))
+    recorder.currentShortcut = store.combination(for: identifier)
+    recorder.isEnabled = isEnabled
+    recorder.setAccessibilityLabel("Shortcut for \(identifier.displayName)")
+    recorder.onRecordingComplete = { [weak self] combination in
+      self?.handleRecordingResult(combination, for: identifier)
     }
+    recorder.translatesAutoresizingMaskIntoConstraints = false
+    recorder.widthAnchor.constraint(equalToConstant: 150).isActive = true
+    recorder.heightAnchor.constraint(equalToConstant: 28).isActive = true
 
-    return nil
+    let resetButton = NSButton(
+      image: NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: "Reset")!,
+      target: self, action: #selector(resetShortcut(_:)))
+    resetButton.isBordered = false
+    resetButton.tag = index
+    resetButton.toolTip = "Restore default for \(identifier.displayName)"
+    resetButton.setAccessibilityLabel("Restore default for \(identifier.displayName)")
+    resetButton.isEnabled = isEnabled
+    resetButton.widthAnchor.constraint(equalToConstant: 24).isActive = true
+
+    let toggle = NSSwitch()
+    toggle.target = self
+    toggle.action = #selector(toggleEnabled(_:))
+    toggle.setAccessibilityLabel("Enable \(identifier.displayName)")
+    toggle.state = isEnabled ? .on : .off
+    toggle.tag = index
+
+    let row = SettingsDesign.stack([name, NSView(), recorder, resetButton, toggle],
+                                   vertical: false, spacing: 10)
+    row.alignment = .centerY
+    for control in [recorder, resetButton, toggle] as [NSView] {
+      control.setContentHuggingPriority(.required, for: .horizontal)
+      control.setContentCompressionResistancePriority(.required, for: .horizontal)
+    }
+    row.setCustomSpacing(16, after: resetButton)
+    row.heightAnchor.constraint(equalToConstant: 40).isActive = true
+    return row
   }
 
   @objc private func resetShortcut(_ sender: NSButton) {
     let row = sender.tag
     guard row < shortcuts.count else { return }
 
-    let identifier = shortcuts[row].identifier
+    let identifier = shortcuts[row]
     showResult(store.resetShortcut(for: identifier),
                success: "Default shortcut restored for \(identifier.displayName).")
   }
@@ -282,11 +223,9 @@ extension KeyboardShortcutsViewController: NSTableViewDelegate {
     let row = sender.tag
     guard row < shortcuts.count else { return }
 
-    let identifier = shortcuts[row].identifier
+    let identifier = shortcuts[row]
     let result = store.setEnabled(sender.state == .on, for: identifier)
     sender.state = store.isEnabled(identifier) ? .on : .off
-    shortcuts[row].isEnabled = store.isEnabled(identifier)
-    tableView.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
     showResult(result, success: "Shortcut \(store.isEnabled(identifier) ? "enabled" : "disabled").")
   }
 

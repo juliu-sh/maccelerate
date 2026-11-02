@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var appLaunchObserver: Any?
   private var inputMonitor: Timer?
   private var inputActive = false
+  private var appliedSystemShortcuts = SystemSpaceShortcuts.Bindings()
 
   func applicationWillFinishLaunching(_ notification: Notification) {
     Self.refreshDockIcon()
@@ -57,6 +58,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         OSDWindow.shared.show(message: "\(newSpaceIndex + 1)")
       }
     }
+    iss_set_system_shortcut_callback { shortcut in
+      DispatchQueue.main.async {
+        (NSApp.delegate as? AppDelegate)?.performSystemShortcut(shortcut)
+      }
+    }
+    iss_set_shift_click_callback { location in StageDockClick.handle(at: location) }
 
     ensureAccessibilityPermission()
 
@@ -78,7 +85,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     refreshSpaceInfo()
     reconcileInputConnection()
     let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
-      Task { @MainActor [weak self] in self?.reconcileInputConnection() }
+      Task { @MainActor [weak self] in
+        self?.reconcileInputConnection()
+        // System Settings changes the shortcuts without notifying other apps.
+        self?.applySystemShortcuts()
+      }
     }
     inputMonitor = timer
     RunLoop.main.add(timer, forMode: .common)
@@ -91,6 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     HotKeyManager.shared.unregisterAll()
     StatisticsStore.shared.stop()
     iss_set_switch_callback(nil)
+    iss_set_system_shortcut_callback(nil)
+    iss_set_shift_click_callback(nil)
     iss_destroy()
     stopObservingSpaceChanges()
     stopObservingAppActivation()
@@ -119,6 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       HotKeyManager.shared.unregisterAll()
       iss_set_overlay_hotkey(ISSOverlayModeMissionControl, 0, 0, false)
       iss_set_overlay_hotkey(ISSOverlayModeAppExpose, 0, 0, false)
+      applySystemShortcuts()
     }
     NotificationCenter.default.post(
       name: Notification.Name("MaccelerateInputConnectionChanged"), object: nil)
@@ -291,9 +305,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     HotKeyManager.shared.unregisterAll()
     iss_set_overlay_hotkey(ISSOverlayModeMissionControl, 0, 0, false)
     iss_set_overlay_hotkey(ISSOverlayModeAppExpose, 0, 0, false)
-    guard inputActive && iss_is_active() else { return }
+    guard inputActive && iss_is_active() else {
+      applySystemShortcuts()
+      return
+    }
     for identifier in HotkeyIdentifier.allCases {
       registerHotkey(for: identifier, combination: hotkeyStore.combination(for: identifier))
+    }
+    applySystemShortcuts()
+  }
+
+  /// Mirrors the enabled macOS shortcuts into the event tap. A Space binding
+  /// that equals an enabled additional Mission Control/App Exposé shortcut
+  /// stays with that overlay shortcut.
+  func applySystemShortcuts() {
+    var bindings = SystemSpaceShortcuts.Bindings()
+    if inputActive && SystemSpaceShortcuts.isAccelerationEnabled {
+      let current = SystemSpaceShortcuts.current()
+      let overlays = [HotkeyIdentifier.missionControl, .appExpose]
+        .filter { hotkeyStore.isActive($0) }
+        .map { hotkeyStore.combination(for: $0) }
+      let relevant = HotkeyCombination.relevantEventFlags
+      bindings.spaces = current.spaces.filter { _, binding in
+        !overlays.contains {
+          UInt16($0.keyCode) == binding.keyCode
+            && $0.cgEventFlagsRawValue & relevant == binding.modifiers & relevant
+        }
+      }
+      bindings.overlays = current.overlays
+    }
+    guard bindings != appliedSystemShortcuts else { return }
+    appliedSystemShortcuts = bindings
+    for shortcut in SystemSpaceShortcuts.allShortcuts {
+      let binding = bindings.spaces[shortcut]
+      iss_set_system_shortcut(
+        shortcut, UInt32(binding?.keyCode ?? 0), binding?.modifiers ?? 0, binding != nil)
+    }
+    for mode in SystemSpaceShortcuts.overlayModes {
+      let binding = bindings.overlays[mode]
+      iss_set_system_overlay_hotkey(
+        mode, UInt32(binding?.keyCode ?? 0), binding?.modifiers ?? 0, binding != nil)
+    }
+  }
+
+  private func performSystemShortcut(_ shortcut: ISSSystemShortcut) {
+    switch shortcut {
+    case ISSSystemShortcutLeft:
+      performSpaceSwitch(ISSDirectionLeft)
+    case ISSSystemShortcutRight:
+      performSpaceSwitch(ISSDirectionRight)
+    default:
+      performSpaceSwitchToIndex(shortcut.rawValue - ISSSystemShortcutDesktop1.rawValue)
     }
   }
 
@@ -307,11 +369,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       HotKeyManager.shared.unregister(identifier: identifier)
       iss_set_overlay_hotkey(
         overlayMode, combination.keyCode, combination.cgEventFlagsRawValue,
-        hotkeyStore.isEnabled(identifier))
+        hotkeyStore.isActive(identifier))
       return
     }
 
-    guard hotkeyStore.isEnabled(identifier) else {
+    guard hotkeyStore.isActive(identifier) else {
       HotKeyManager.shared.unregister(identifier: identifier)
       return
     }

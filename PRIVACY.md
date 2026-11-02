@@ -10,7 +10,7 @@ Time saved is an estimate based on reference durations from one screen recording
 
 ## Settings and permissions
 
-Switching and shortcut preferences are stored in macOS `UserDefaults` on your Mac. If you enable launch at login, macOS stores that registration. Accessibility and Input Monitoring permissions can be revoked in **System Settings → Privacy & Security**. The app has no account or license activation.
+Switching and shortcut preferences are stored in macOS `UserDefaults` on your Mac. If you enable launch at login, macOS stores that registration. Maccelerate reads your macOS keyboard shortcut settings without changing them. The optional Stage Manager settings write macOS's own WindowManager preferences; they remain in macOS until you choose System or turn the option off. Shift-click in the Dock reads the Dock and Stage Manager window lists locally. Accessibility and Input Monitoring permissions can be revoked in **System Settings → Privacy & Security**. The app has no account or license activation.
 
 ## Updates
 

@@ -1,31 +1,26 @@
-# Maccelerate 1.3.1, Free release, build 33
+# Maccelerate 1.4.0, Free release, build 34
 
-Rapid Space switching now coordinates consecutive requests, including quick
-direction reversals. New input updates the destination while a switch is in
-progress, so obsolete requests do not build up behind the latest choice.
+Maccelerate now accelerates the keyboard shortcuts you already use in macOS
+and adds optional Stage Manager settings.
 
-## Fixes
+## New
 
-- Confirm the observed Space before reporting a completed switch, updating the Space indicator or counting it in Statistics.
-- Keep track of the latest destination during fast shortcut and trackpad sequences on all supported macOS versions.
-- Account for ongoing display transitions when macOS exposes their status. Recover from ignored explicit requests with bounded retries.
-- Fail conservatively when a transition cannot be confirmed. A failed or superseded request does not leave an unconfirmed Space prediction behind.
-- Preserve each macOS version's gesture format and the existing permission-change protections.
+- **macOS shortcuts:** Move left/right a space, Switch to Desktop 1–10, Mission Control and Application windows use Maccelerate's switching speed when they are enabled in System Settings. Maccelerate reads these settings and does not change them. Shortcuts that are turned off in macOS are left alone. You can turn this off in **Shortcuts**.
+- **Additional shortcuts:** Your own key combinations are now a separate, optional list with a single switch. New default combinations for Mission Control and App Exposé are Control-Option-Command-Up/Down Arrow, so they no longer overlap macOS's own shortcuts. Shortcuts you already set are kept.
+- **Stage Manager animation speed:** Choose Fast, Faster or Instant, or keep the System setting. The change applies immediately.
+- **Show recent apps instantly:** Removes the wait at the screen edge before Stage Manager's recent apps appear. Stage Manager applies this after a restart, which Maccelerate can do for you; your windows stay open.
+- **Shift-click in the Dock adds to stage (experimental, off by default):** Adds an open app to the current stage instead of switching to its own stage. This works for apps shown in Stage Manager's recent apps; other clicks behave as usual.
 
-Appearance, the optional Space indicator and local aggregate Statistics remain
-included in Free. Maccelerate is free and MIT licensed.
+The Stage Manager options use hidden macOS settings. They stay in macOS after
+Maccelerate quits until you choose System or turn the option off.
 
 ## Compatibility
 
-Rapid shortcut and trackpad switching were tested live on macOS 26.6. Automated
-tests also cover both gesture formats, delayed and dropped transitions, rapid
-reversals, Space boundaries, cancellation and permission changes. Live coverage
-across other macOS versions, displays and full-screen Spaces remains limited.
-
-Maccelerate uses undocumented macOS behavior. If display-animation status is
-unavailable, switching uses a conservative confirmation path and can time out
-rather than report an uncertain result as successful. If input access is
-unavailable, check Accessibility access, then quit and reopen Maccelerate.
+The new shortcut handling and the Stage Manager options were tested live on
+macOS 26.6. Automated tests cover the shortcut reading and translation. Live
+coverage across other macOS versions, keyboard layouts and display arrangements
+remains limited. Stage Manager options rely on undocumented behavior that a
+macOS update can change or ignore.
 
 ## Installation
 

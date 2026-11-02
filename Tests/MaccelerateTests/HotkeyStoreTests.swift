@@ -181,4 +181,20 @@ struct HotkeyStoreTests {
     }
     #expect(before.isEqual(to: defaults.values))
   }
+
+  @Test func globalSwitchKeepsEachShortcutsOwnSetting() {
+    let defaults = MemoryDefaults()
+    let store = HotkeyStore(defaults: defaults)
+    store.setEnabled(false, for: .lastSpace)
+    var changes = 0
+    let subscription = store.configurationDidChange.sink { changes += 1 }
+    store.setAdditionalShortcutsEnabled(false)
+    #expect(!store.isActive(.left) && store.isEnabled(.left))
+    #expect(HotkeyStore(defaults: defaults).additionalShortcutsEnabled == false)
+    store.setAdditionalShortcutsEnabled(false)
+    store.setAdditionalShortcutsEnabled(true)
+    #expect(store.isActive(.left) && !store.isActive(.lastSpace))
+    #expect(changes == 2)
+    subscription.cancel()
+  }
 }

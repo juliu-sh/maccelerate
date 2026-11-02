@@ -32,6 +32,9 @@ struct HotkeyCombination: Codable, Equatable {
     return flags.rawValue
   }
 
+  static let relevantEventFlags =
+    CGEventFlags([.maskCommand, .maskAlternate, .maskControl, .maskShift]).rawValue
+
   var isValid: Bool {
     !displayKey.isEmpty
   }
@@ -55,16 +58,17 @@ struct HotkeyCombination: Codable, Equatable {
     keyEquivalent: HotkeyCombination.arrowKeyEquivalent(.rightArrow)
   )
 
+  // macOS's own ⌃↑/⌃↓ are accelerated separately; these are additional.
   static let defaultMissionControl = HotkeyCombination(
     keyCode: UInt32(kVK_UpArrow),
-    modifiers: UInt32(controlKey),
+    modifiers: HotkeyCombination.defaultModifierMask,
     displayKey: "↑",
     keyEquivalent: HotkeyCombination.arrowKeyEquivalent(.upArrow)
   )
 
   static let defaultAppExpose = HotkeyCombination(
     keyCode: UInt32(kVK_DownArrow),
-    modifiers: UInt32(controlKey),
+    modifiers: HotkeyCombination.defaultModifierMask,
     displayKey: "↓",
     keyEquivalent: HotkeyCombination.arrowKeyEquivalent(.downArrow)
   )
@@ -181,7 +185,7 @@ struct HotkeyCombination: Codable, Equatable {
     }
   }
   
-  private static func specialKeyInfo(for keyCode: Int) -> (displayKey: String, keyEquivalent: String)? {
+  static func specialKeyInfo(for keyCode: Int) -> (displayKey: String, keyEquivalent: String)? {
     switch keyCode {
     // Enter/Return
     case kVK_Return:
@@ -350,6 +354,8 @@ final class HotkeyStore: ObservableObject {
   @Published private(set) var space10Hotkey: HotkeyCombination
   @Published private(set) var spaceLastSpaceHotkey: HotkeyCombination
   @Published private(set) var enabledStates: [HotkeyIdentifier: Bool] = [:]
+  /// Global switch for all additional shortcuts; their own switches stay saved.
+  @Published private(set) var additionalShortcutsEnabled: Bool
 
   private let defaults: UserDefaults
 
@@ -372,6 +378,7 @@ final class HotkeyStore: ObservableObject {
     space10Hotkey = defaults.hotkey(forKey: DefaultsKey.space10.rawValue) ?? .defaultForSpace(10)
     spaceLastSpaceHotkey = defaults.hotkey(forKey: DefaultsKey.lastSpace.rawValue) ?? .defaultLastSpace
 
+    additionalShortcutsEnabled = defaults.object(forKey: "additionalShortcutsEnabled") as? Bool ?? true
     for identifier in HotkeyIdentifier.allCases {
       let key = "enabled.\(identifier.rawValue)"
       enabledStates[identifier] = defaults.object(forKey: key) as? Bool ?? true
@@ -545,6 +552,18 @@ final class HotkeyStore: ObservableObject {
 
   func isEnabled(_ identifier: HotkeyIdentifier) -> Bool {
     return enabledStates[identifier] ?? true
+  }
+
+  /// Whether the shortcut is in use: its own switch and the global one are on.
+  func isActive(_ identifier: HotkeyIdentifier) -> Bool {
+    additionalShortcutsEnabled && isEnabled(identifier)
+  }
+
+  func setAdditionalShortcutsEnabled(_ enabled: Bool) {
+    guard enabled != additionalShortcutsEnabled else { return }
+    additionalShortcutsEnabled = enabled
+    defaults.set(enabled, forKey: "additionalShortcutsEnabled")
+    configurationDidChange.send()
   }
 
   @discardableResult

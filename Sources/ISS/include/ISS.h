@@ -141,6 +141,41 @@ void iss_set_swipe_override(bool enabled);
 void iss_set_overlay_hotkey(ISSOverlayMode mode, unsigned int keyCode,
                             uint64_t modifiers, bool enabled);
 
+/** macOS's own Mission Control/App Exposé shortcut from System Settings.
+ * Translated like iss_set_overlay_hotkey, in addition to that shortcut. */
+void iss_set_system_overlay_hotkey(ISSOverlayMode mode, unsigned int keyCode,
+                                   uint64_t modifiers, bool enabled);
+
+/** macOS's own Space shortcuts from System Settings → Keyboard Shortcuts:
+ * Move left/right a space and Switch to Desktop 1-10. */
+typedef enum {
+    ISSSystemShortcutLeft = 0,
+    ISSSystemShortcutRight = 1,
+    ISSSystemShortcutDesktop1 = 2, /**< Desktop N is Desktop1 + N - 1. */
+    ISSSystemShortcutCount = 12
+} ISSSystemShortcut;
+
+typedef void (*ISSSystemShortcutCallback)(ISSSystemShortcut shortcut);
+
+/**
+ * @brief Consumes a physical press of an enabled macOS Space shortcut before
+ * macOS starts its own transition and reports it through the callback.
+ *
+ * Only configure shortcuts that are enabled in System Settings. Otherwise the
+ * key combination belongs to the frontmost app. The callback runs inside the
+ * event tap on the main thread; it must only schedule work.
+ * modifiers must contain CGEventFlags (command/option/control/shift).
+ */
+void iss_set_system_shortcut(ISSSystemShortcut shortcut, unsigned int keyCode,
+                             uint64_t modifiers, bool enabled);
+void iss_set_system_shortcut_callback(ISSSystemShortcutCallback callback);
+
+/** Called for a physical left-button Shift-click, with Shift as the only
+ * modifier. Return true to take the click: its press and release are then
+ * consumed. Runs inside the tap on the main thread and must return quickly. */
+typedef bool (*ISSShiftClickCallback)(CGPoint location);
+void iss_set_shift_click_callback(ISSShiftClickCallback callback);
+
 /**
  * @brief Arms the next physical menu-item mouse-up to trigger an accelerated
  * overlay gesture through the trusted event-tap proxy.

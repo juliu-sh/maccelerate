@@ -96,10 +96,23 @@ typedef struct {
 } ISSOverlayHotkey;
 
 static ISSOverlayHotkey overlayHotkeys[2] = {0};
+// macOS's own Mission Control/App Exposé shortcuts, accelerated alongside the
+// app's additional ones.
+static ISSOverlayHotkey systemOverlayHotkeys[2] = {0};
 static int activeOverlayHotkey = -1;
+static CGKeyCode activeOverlayKeyCode = 0;
 static bool activeOverlayHotkeyWasAccelerated = false;
 static int pendingMenuOverlay = -1;
 static bool menuOverlayWasTriggered = false;
+
+static ISSOverlayHotkey systemShortcuts[ISSSystemShortcutCount] = {0};
+static ISSSystemShortcutCallback systemShortcutCallback = NULL;
+// Key code of the consumed press, so its repeats and release are consumed too.
+static int activeSystemShortcutKey = -1;
+
+static ISSShiftClickCallback shiftClickCallback = NULL;
+// The app took the last Shift-click, so its release is consumed too.
+static bool shiftClickActive = false;
 
 static const CGEventFlags kRelevantHotkeyFlags =
     kCGEventFlagMaskCommand | kCGEventFlagMaskAlternate |
@@ -234,7 +247,15 @@ static CGKeyCode native_overlay_keycode(ISSOverlayMode mode) {
 
 static bool overlay_hotkeys_enabled(void) {
     return overlayHotkeys[ISSOverlayModeMissionControl].enabled ||
-           overlayHotkeys[ISSOverlayModeAppExpose].enabled;
+           overlayHotkeys[ISSOverlayModeAppExpose].enabled ||
+           systemOverlayHotkeys[ISSOverlayModeMissionControl].enabled ||
+           systemOverlayHotkeys[ISSOverlayModeAppExpose].enabled;
+}
+
+static bool overlay_hotkey_matches(ISSOverlayHotkey hotkey, CGKeyCode keyCode,
+                                   CGEventFlags modifiers) {
+    return hotkey.enabled && hotkey.keyCode == keyCode &&
+           hotkey.modifiers == modifiers;
 }
 
 static double vertical_gesture_multiplier(void) {
@@ -404,10 +425,11 @@ static CGEventRef translate_physical_overlay_hotkey(CGEventTapProxy proxy,
         activeOverlayHotkey = -1;
         for (int mode = ISSOverlayModeMissionControl;
              mode <= ISSOverlayModeAppExpose; mode++) {
-            const ISSOverlayHotkey hotkey = overlayHotkeys[mode];
-            if (hotkey.enabled && hotkey.keyCode == keyCode &&
-                hotkey.modifiers == modifiers) {
+            if (overlay_hotkey_matches(overlayHotkeys[mode], keyCode, modifiers) ||
+                overlay_hotkey_matches(systemOverlayHotkeys[mode], keyCode,
+                                       modifiers)) {
                 activeOverlayHotkey = mode;
+                activeOverlayKeyCode = keyCode;
                 break;
             }
         }
@@ -422,8 +444,7 @@ static CGEventRef translate_physical_overlay_hotkey(CGEventTapProxy proxy,
         }
         activeOverlayHotkeyWasAccelerated = false;
     } else {
-        if (activeOverlayHotkey < 0 ||
-            overlayHotkeys[activeOverlayHotkey].keyCode != keyCode) {
+        if (activeOverlayHotkey < 0 || activeOverlayKeyCode != keyCode) {
             return event;
         }
         if (activeOverlayHotkeyWasAccelerated) {
@@ -439,6 +460,60 @@ static CGEventRef translate_physical_overlay_hotkey(CGEventTapProxy proxy,
     CGEventSetFlags(event, kNativeOverlayFlags);
     if (type == kCGEventKeyUp) activeOverlayHotkey = -1;
     return event;
+}
+
+// macOS handles its Space shortcuts after this session tap. Consuming the
+// physical press here replaces the slow native slide with an app request.
+static CGEventRef intercept_system_shortcut(CGEventType type, CGEventRef event) {
+    if (type != kCGEventKeyDown && type != kCGEventKeyUp) return event;
+    if (!systemShortcutCallback) return event;
+    const pid_t sourcePid = (pid_t)CGEventGetIntegerValueField(
+        event, kCGEventSourceUnixProcessID);
+    if (sourcePid != 0) return event;
+
+    const CGKeyCode keyCode = (CGKeyCode)CGEventGetIntegerValueField(
+        event, kCGKeyboardEventKeycode);
+    if (type == kCGEventKeyUp) {
+        if (activeSystemShortcutKey != (int)keyCode) return event;
+        activeSystemShortcutKey = -1;
+        return NULL;
+    }
+
+    if (CGEventGetIntegerValueField(event, kCGKeyboardEventAutorepeat) != 0) {
+        return activeSystemShortcutKey == (int)keyCode ? NULL : event;
+    }
+    const CGEventFlags modifiers = CGEventGetFlags(event) & kRelevantHotkeyFlags;
+    for (int shortcut = 0; shortcut < ISSSystemShortcutCount; shortcut++) {
+        const ISSOverlayHotkey binding = systemShortcuts[shortcut];
+        if (!binding.enabled || binding.keyCode != keyCode
+            || binding.modifiers != modifiers) continue;
+        activeSystemShortcutKey = (int)keyCode;
+        systemShortcutCallback((ISSSystemShortcut)shortcut);
+        return NULL;
+    }
+    return event;
+}
+
+// A physical Shift-click goes to the app first. Only a click the app takes
+// is consumed, together with its release; every other click passes unchanged.
+static CGEventRef intercept_shift_click(CGEventType type, CGEventRef event) {
+    if (type == kCGEventLeftMouseUp) {
+        if (!shiftClickActive) return event;
+        shiftClickActive = false;
+        return NULL;
+    }
+    if (type != kCGEventLeftMouseDown) return event;
+    shiftClickActive = false;
+    if (!shiftClickCallback) return event;
+    const pid_t sourcePid = (pid_t)CGEventGetIntegerValueField(
+        event, kCGEventSourceUnixProcessID);
+    if (sourcePid != 0) return event;
+    if ((CGEventGetFlags(event) & kRelevantHotkeyFlags) != kCGEventFlagMaskShift) {
+        return event;
+    }
+    if (!shiftClickCallback(CGEventGetLocation(event))) return event;
+    shiftClickActive = true;
+    return NULL;
 }
 
 #include "vertical_click_guard.h"
@@ -599,6 +674,8 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
         cmdTabPending = false;
         lastCmdTabKeyDown = 0;
         lastCmdTabRelease = 0;
+        activeSystemShortcutKey = -1;
+        shiftClickActive = false;
         if (globalTap) CGEventTapEnable(globalTap, true);
         return event;
     }
@@ -628,6 +705,15 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
                && !(CGEventGetFlags(event) & kCGEventFlagMaskCommand)) {
         cmdTabPending = false;
         lastCmdTabRelease = CFAbsoluteTimeGetCurrent();
+    }
+
+    if (type == kCGEventKeyDown || type == kCGEventKeyUp) {
+        CGEventRef result = intercept_system_shortcut(type, event);
+        if (result != event) return result;
+    }
+    if (type == kCGEventLeftMouseDown || type == kCGEventLeftMouseUp) {
+        CGEventRef result = intercept_shift_click(type, event);
+        if (result != event) return result;
     }
 
     if (overlay_hotkeys_enabled() &&
@@ -1341,6 +1427,8 @@ void iss_destroy(void) {
     activeOverlayHotkeyWasAccelerated = false;
     pendingMenuOverlay = -1;
     menuOverlayWasTriggered = false;
+    activeSystemShortcutKey = -1;
+    shiftClickActive = false;
     if (predictionsDict) {
         CFRelease(predictionsDict);
         predictionsDict = NULL;
@@ -1700,6 +1788,35 @@ void iss_set_overlay_hotkey(ISSOverlayMode mode, unsigned int keyCode,
     overlayHotkeys[mode].modifiers =
         (CGEventFlags)modifiers & kRelevantHotkeyFlags;
     if (!enabled && activeOverlayHotkey == (int)mode) activeOverlayHotkey = -1;
+}
+
+void iss_set_system_overlay_hotkey(ISSOverlayMode mode, unsigned int keyCode,
+                                   uint64_t modifiers, bool enabled) {
+    if (!valid_overlay_mode(mode)) return;
+    systemOverlayHotkeys[mode].enabled = enabled;
+    systemOverlayHotkeys[mode].keyCode = (CGKeyCode)keyCode;
+    systemOverlayHotkeys[mode].modifiers =
+        (CGEventFlags)modifiers & kRelevantHotkeyFlags;
+    if (!enabled && activeOverlayHotkey == (int)mode) activeOverlayHotkey = -1;
+}
+
+void iss_set_system_shortcut(ISSSystemShortcut shortcut, unsigned int keyCode,
+                             uint64_t modifiers, bool enabled) {
+    if ((int)shortcut < 0 || shortcut >= ISSSystemShortcutCount) return;
+    systemShortcuts[shortcut].enabled = enabled;
+    systemShortcuts[shortcut].keyCode = (CGKeyCode)keyCode;
+    systemShortcuts[shortcut].modifiers =
+        (CGEventFlags)modifiers & kRelevantHotkeyFlags;
+}
+
+void iss_set_system_shortcut_callback(ISSSystemShortcutCallback callback) {
+    systemShortcutCallback = callback;
+    if (!callback) activeSystemShortcutKey = -1;
+}
+
+void iss_set_shift_click_callback(ISSShiftClickCallback callback) {
+    shiftClickCallback = callback;
+    if (!callback) shiftClickActive = false;
 }
 
 void iss_arm_overlay_menu(ISSOverlayMode mode) {
