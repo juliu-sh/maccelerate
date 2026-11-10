@@ -45,17 +45,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
     guard stopDuplicateInstances() else { return }
+    // Before Sparkle or the speed below write a default: an empty domain marks a new installation.
+    IndicatorSettings.migrate()
     updater.start()
-    let storedGestureSpeed = UserDefaults.standard.double(forKey: "gestureSpeed")
+    let storedGestureSpeed = UserDefaults.standard.double(forKey: SwitchingMode.speedKey)
     let speed = SwitchingSpeedPreset.fromStoredVelocity(storedGestureSpeed)
     if storedGestureSpeed != speed.velocity {
-      UserDefaults.standard.set(speed.velocity, forKey: "gestureSpeed")
+      UserDefaults.standard.set(speed.velocity, forKey: SwitchingMode.speedKey)
     }
-    iss_set_gesture_speed(speed.velocity)
+    SwitchingMode.apply()
     StatisticsStore.shared.start()
     iss_set_switch_callback { newSpaceIndex in
       DispatchQueue.main.async {
-        OSDWindow.shared.show(message: "\(newSpaceIndex + 1)")
+        // Under System, the Space change notification shows the indicator for every switch.
+        guard SwitchingMode.current().accelerates else { return }
+        SpaceIndicator.shared.show(space: Int(newSpaceIndex) + 1)
       }
     }
     iss_set_system_shortcut_callback { shortcut in
@@ -67,10 +71,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     ensureAccessibilityPermission()
 
-    if UserDefaults.standard.bool(forKey: "swipeOverride") {
-      iss_set_swipe_override(true)
-    }
-
     if UserDefaults.standard.object(forKey: "overlayDetectionEnabled") as? Bool ?? true {
       iss_set_overlay_detection_enabled(true)
     }
@@ -79,6 +79,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     menuBarController.delegate = self
     menuBarController.setup()
     bindHotkeys()
+    NotificationCenter.default.addObserver(
+      forName: SwitchingMode.didChange, object: nil, queue: .main
+    ) { _ in
+      Task { @MainActor in (NSApp.delegate as? AppDelegate)?.applySystemShortcuts() }
+    }
     observeSpaceChanges()
     observeAppActivation()
     observeAppLaunches()
@@ -320,7 +325,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// stays with that overlay shortcut.
   func applySystemShortcuts() {
     var bindings = SystemSpaceShortcuts.Bindings()
-    if inputActive && SystemSpaceShortcuts.isAccelerationEnabled {
+    if inputActive && SystemSpaceShortcuts.isAccelerationEnabled && SwitchingMode.current().accelerates {
       let current = SystemSpaceShortcuts.current()
       let overlays = [HotkeyIdentifier.missionControl, .appExpose]
         .filter { hotkeyStore.isActive($0) }
@@ -360,8 +365,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func registerHotkey(for identifier: HotkeyIdentifier, combination: HotkeyCombination) {
-    menuBarController.applyHotkey(combination, to: identifier)
-
     if let overlayMode = overlayMode(for: identifier) {
       // Carbon turns a global shortcut into a new process-generated event.
       // macOS 27 rejects that provenance for Mission Control/App Exposé, so
@@ -418,18 +421,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     case .missionControl: return ISSOverlayModeMissionControl
     case .appExpose: return ISSOverlayModeAppExpose
     default: return nil
-    }
-  }
-
-  private func performOverlay(_ mode: ISSOverlayMode, sourceEvent: NSEvent?) {
-    if iss_take_overlay_menu_triggered() {
-      return
-    }
-    guard let cgEvent = sourceEvent?.cgEvent,
-      iss_trigger_overlay_from_event(mode, cgEvent)
-    else {
-      NSSound.beep()
-      return
     }
   }
 
@@ -510,6 +501,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.refreshSpaceInfo()
         iss_reset_predictions()
         self.menuBarController.scheduleRefresh(after: 0.2)
+        // Maccelerate's own switches report themselves; under System, macOS switches.
+        if !SwitchingMode.current().accelerates, let currentSpaceIndex = self.currentSpaceIndex {
+          SpaceIndicator.shared.show(space: Int(currentSpaceIndex) + 1)
+        }
       }
     }
   }
@@ -529,7 +524,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       queue: nil
     ) { [weak self] notification in
       guard self != nil else { return }
-      if UserDefaults.standard.object(forKey: "accelerateCmdTab") as? Bool ?? true,
+      if SwitchingMode.current().accelerates,
+        UserDefaults.standard.object(forKey: "accelerateCmdTab") as? Bool ?? true,
         let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
           as? NSRunningApplication
       {
@@ -587,21 +583,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension AppDelegate: MenuBarControllerDelegate {
-  func menuBarControllerDidRequestSwitchLeft(_ controller: MenuBarController) {
-    performSpaceSwitch(ISSDirectionLeft)
-  }
-
-  func menuBarControllerDidRequestSwitchRight(_ controller: MenuBarController) {
-    performSpaceSwitch(ISSDirectionRight)
-  }
-
-  func menuBarController(
-    _ controller: MenuBarController, didRequestOverlay mode: ISSOverlayMode,
-    sourceEvent: NSEvent?
-  ) {
-    performOverlay(mode, sourceEvent: sourceEvent)
-  }
-
   func menuBarControllerDidRequestPreferences(_ controller: MenuBarController) {
     preferencesWindowController.present()
   }

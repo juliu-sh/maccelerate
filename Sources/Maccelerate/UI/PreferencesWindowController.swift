@@ -4,10 +4,11 @@ import AppKit
 final class PreferencesWindowController: NSWindowController {
   convenience init() {
     let tabViewController = PreferencesTabViewController()
-    let height = max(600, min(820, (NSScreen.main?.visibleFrame.height ?? 880) - 60))
+    let width: CGFloat = 560
+    let height = max(600, min(868, (NSScreen.main?.visibleFrame.height ?? 880) - 60))
 
     let panel = PreferencesPanel(
-      contentRect: NSRect(x: 0, y: 0, width: 660, height: height),
+      contentRect: NSRect(x: 0, y: 0, width: width, height: height),
       styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
       backing: .buffered,
       defer: false
@@ -17,15 +18,15 @@ final class PreferencesWindowController: NSWindowController {
     panel.titleVisibility = .hidden
     panel.isMovableByWindowBackground = true
     panel.title = "\(Constants.appName) Settings"
-    tabViewController.view.frame = NSRect(x: 0, y: 0, width: 660, height: height)
-    tabViewController.preferredContentSize = NSSize(width: 660, height: height)
+    tabViewController.view.frame = NSRect(x: 0, y: 0, width: width, height: height)
+    tabViewController.preferredContentSize = NSSize(width: width, height: height)
     NSLayoutConstraint.activate([
-      tabViewController.view.widthAnchor.constraint(equalToConstant: 660),
+      tabViewController.view.widthAnchor.constraint(equalToConstant: width),
       tabViewController.view.heightAnchor.constraint(equalToConstant: height),
     ])
     panel.contentViewController = tabViewController
-    panel.setContentSize(NSSize(width: 660, height: height))
-    panel.contentMinSize = NSSize(width: 660, height: height)
+    panel.setContentSize(NSSize(width: width, height: height))
+    panel.contentMinSize = NSSize(width: width, height: height)
     panel.isReleasedWhenClosed = false
     panel.hidesOnDeactivate = false
     panel.center()
@@ -44,6 +45,8 @@ final class PreferencesWindowController: NSWindowController {
     NSApp.activate(ignoringOtherApps: true)
     window.makeKeyAndOrderFront(nil)
     window.orderFrontRegardless()
+    // With Full Keyboard Access, AppKit would otherwise focus the page tabs on opening.
+    if window.firstResponder is NSView { window.makeFirstResponder(nil) }
   }
 }
 

@@ -2,18 +2,19 @@ import AppKit
 import Combine
 import ISS
 
+/// Status item and its card-style panel.
 @MainActor
-final class MenuBarController: NSObject, NSMenuDelegate {
+final class MenuBarController: NSObject, NSWindowDelegate {
   private(set) var statusItem: NSStatusItem!
-  private var leftMenuItem: NSMenuItem?
-  private var rightMenuItem: NSMenuItem?
-  private var missionControlMenuItem: NSMenuItem?
-  private var appExposeMenuItem: NSMenuItem?
-  private var spacesMenuItem: NSMenuItem?
+  private var panel: MenuPanelWindow?
   private var cachedSpaceInfo: ISSSpaceInfo?
-  private let menuSummary = MenuSummaryView()
   private var refreshWorkItem: DispatchWorkItem?
-  private var updaterSubscription: AnyCancellable?
+  private var closedAt = Date.distantPast
+  private var outsideClickMonitor: Any?
+  private var modeObserver: NSObjectProtocol?
+  private var speedControl: SettingsSegmented?
+  private let width: CGFloat = 304
+  private let radius: CGFloat = 18
 
   private lazy var baseStatusImage: NSImage? = {
     let image = NSImage(
@@ -26,146 +27,187 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
   func setup() {
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    statusItem.menu = createMenu()
+    statusItem.button?.target = self
+    statusItem.button?.action = #selector(togglePanel)
+    // Opens on press, like a menu.
+    statusItem.button?.sendAction(on: [.leftMouseDown, .rightMouseDown])
+    statusItem.button?.setAccessibilityLabel(Constants.appName)
     updateStatusItemAppearance()
+    modeObserver = NotificationCenter.default.addObserver(
+      forName: SwitchingMode.didChange, object: nil, queue: .main
+    ) { [weak self] _ in
+      Task { @MainActor [weak self] in self?.speedControl?.selected = SwitchingMode.current().segment }
+    }
   }
 
-  private func createMenu() -> NSMenu {
-    let menu = NSMenu()
-    menu.delegate = self
-    menu.autoenablesItems = false
-    menu.minimumWidth = 290
-    let summaryItem = NSMenuItem()
-    summaryItem.view = menuSummary
-    menu.addItem(summaryItem)
-    menu.addItem(.separator())
+  @objc func togglePanel() {
+    if panel?.isVisible == true {
+      closePanel()
+      return
+    }
+    // A press on the item first closes the open panel by resigning key.
+    guard Date().timeIntervalSince(closedAt) > 0.25 else { return }
+    delegate?.menuBarControllerDidRequestRefresh(self)
+    openPanel()
+  }
 
-    let leftItem = NSMenuItem(
-      title: "Switch Left", action: #selector(switchLeft(_:)), keyEquivalent: "")
-    leftItem.target = self
-    leftItem.image = NSImage(systemSymbolName: "arrow.left", accessibilityDescription: nil)
-    menu.addItem(leftItem)
-    leftMenuItem = leftItem
+  private func openPanel() {
+    let panel = makePanel()
+    self.panel = panel
+    let room = MenuPanelBackdrop.room
+    let fitting = panel.contentView?.fittingSize ?? NSSize(width: width + room * 2, height: 400)
+    let height = fitting.height - room * 2
+    panel.setContentSize(fitting)
+    let screen = statusItem.button?.window?.screen ?? NSScreen.main
+    let visible = screen?.visibleFrame ?? .zero
+    var origin = NSPoint(x: visible.maxX - width - 10, y: visible.maxY - height - 6)
+    if let frame = statusItem.button?.window?.frame, frame.minX > 0 {
+      origin = NSPoint(x: frame.midX - width / 2, y: frame.minY - height - 6)
+    }
+    origin.x = min(max(origin.x, visible.minX + 10), visible.maxX - width - 10)
+    panel.setFrameOrigin(NSPoint(x: origin.x - room, y: origin.y - room))
+    panel.makeKeyAndOrderFront(nil)
+    // With Full Keyboard Access, AppKit would otherwise focus the Space tiles on opening.
+    if panel.firstResponder is NSView { panel.makeFirstResponder(nil) }
+    statusItem.button?.highlight(true)
+    outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+      matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+    ) { [weak self] _ in
+      Task { @MainActor [weak self] in self?.closePanel() }
+    }
+  }
 
-    let rightItem = NSMenuItem(
-      title: "Switch Right", action: #selector(switchRight(_:)), keyEquivalent: "")
-    rightItem.target = self
-    rightItem.image = NSImage(systemSymbolName: "arrow.right", accessibilityDescription: nil)
-    menu.addItem(rightItem)
-    rightMenuItem = rightItem
+  func closePanel() {
+    guard let panel else { return }
+    self.panel = nil
+    speedControl = nil
+    closedAt = Date()
+    if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
+    outsideClickMonitor = nil
+    statusItem.button?.highlight(false)
+    panel.delegate = nil
+    panel.orderOut(nil)
+  }
 
-    menu.addItem(NSMenuItem.separator())
+  func windowDidResignKey(_ notification: Notification) { closePanel() }
 
-    let missionControlItem = NSMenuItem(
-      title: "Mission Control", action: #selector(showMissionControl(_:)), keyEquivalent: "")
-    missionControlItem.target = self
-    missionControlItem.image = NSImage(
-      systemSymbolName: "rectangle.3.group", accessibilityDescription: nil)
-    menu.addItem(missionControlItem)
-    missionControlMenuItem = missionControlItem
+  private func makePanel() -> MenuPanelWindow {
+    let panel = MenuPanelWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 400),
+                                styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    panel.isOpaque = false
+    panel.backgroundColor = .clear
+    panel.hasShadow = false
+    panel.level = .popUpMenu
+    panel.isReleasedWhenClosed = false
+    panel.hidesOnDeactivate = false
+    panel.collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary, .moveToActiveSpace]
+    panel.delegate = self
+    panel.onClose = { [weak self] in self?.closePanel() }
+    panel.keyEquivalents = [
+      ",": { [weak self] in self?.openSettings() },
+      "q": { NSApp.terminate(nil) },
+    ]
+    let backdrop = MenuPanelBackdrop(makeContent(), radius: radius)
+    backdrop.onClickOutside = { [weak self] in self?.closePanel() }
+    panel.contentView = backdrop
+    panel.setAccessibilityLabel(Constants.appName)
+    return panel
+  }
 
-    let appExposeItem = NSMenuItem(
-      title: "App Exposé", action: #selector(showAppExpose(_:)), keyEquivalent: "")
-    appExposeItem.target = self
-    appExposeItem.image = NSImage(
-      systemSymbolName: "macwindow.on.rectangle", accessibilityDescription: nil)
-    menu.addItem(appExposeItem)
-    appExposeMenuItem = appExposeItem
+  private func makeContent() -> NSView {
+    let surface = SettingsFill(SettingsStyle.card, radius: radius)
 
-    menu.addItem(NSMenuItem.separator())
+    let icon = NSImageView(image: NSApp.applicationIconImage)
+    icon.translatesAutoresizingMaskIntoConstraints = false
+    icon.widthAnchor.constraint(equalToConstant: 30).isActive = true
+    icon.heightAnchor.constraint(equalToConstant: 30).isActive = true
+    let info = cachedSpaceInfo.flatMap { $0.spaceCount > 0 ? $0 : nil }
+    let location = info.map { "Space \($0.currentIndex + 1) of \($0.spaceCount)" } ?? "Spaces unavailable"
+    let names = SettingsDesign.stack([
+      SettingsDesign.text(Constants.appName, weight: .semibold, color: SettingsStyle.label),
+      SettingsDesign.text(location, size: 11, color: SettingsStyle.secondary),
+    ], spacing: 0)
+    let header = SettingsDesign.stack([icon, names, NSView()], vertical: false, spacing: 9)
 
-    let spacesItem = NSMenuItem(title: "Spaces", action: nil, keyEquivalent: "")
-    let spacesSubmenu = NSMenu(title: "Spaces")
-    spacesSubmenu.delegate = self
-    spacesSubmenu.autoenablesItems = false
-    spacesItem.submenu = spacesSubmenu
-    spacesItem.image = NSImage(
-      systemSymbolName: "square.and.line.vertical.and.square", accessibilityDescription: nil)
-    menu.addItem(spacesItem)
-    spacesMenuItem = spacesItem
-
-    menu.addItem(NSMenuItem.separator())
-
-    let preferencesItem = NSMenuItem(
-      title: "Settings…", action: #selector(openPreferences(_:)), keyEquivalent: ",")
-    preferencesItem.keyEquivalentModifierMask = [.command]
-    preferencesItem.target = self
-    preferencesItem.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
-    menu.addItem(preferencesItem)
-
-    menu.addItem(NSMenuItem.separator())
-
-    let aboutItem = NSMenuItem(
-      title: "About Maccelerate", action: #selector(openAbout(_:)), keyEquivalent: "")
-    aboutItem.target = self
-    aboutItem.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
-    menu.addItem(aboutItem)
-
-    let updateItem = NSMenuItem(title: "Check for Updates…",
-      action: #selector(UpdaterManager.checkForUpdates(_:)), keyEquivalent: "")
-    updateItem.target = UpdaterManager.shared
-    updateItem.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)
-    menu.addItem(updateItem)
-    updaterSubscription = UpdaterManager.shared.$canCheckForUpdates.sink { [weak updateItem] available in
-      updateItem?.isEnabled = available
+    var top: [NSView] = [header]
+    if let info {
+      top.append(MenuSpacePicker(space: Int(info.currentIndex) + 1, total: Int(info.spaceCount)) {
+        [weak self] space in
+        guard let self else { return }
+        self.closePanel()
+        self.delegate?.menuBarController(self, didRequestSwitchToSpaceAtIndex: UInt32(space - 1))
+      })
+    }
+    let speed = SettingsSegmented(titles: SwitchingMode.titles, selected: SwitchingMode.current().segment,
+                                  size: .compact, label: "Switching speed")
+    speed.onChange = { segment in
+      if let mode = SwitchingMode(segment: segment) { SwitchingMode.select(mode) }
+    }
+    speedControl = speed
+    top.append(speed)
+    let topStack = SettingsDesign.stack(top, spacing: 10)
+    topStack.setCustomSpacing(12, after: header)
+    for view in topStack.arrangedSubviews {
+      view.widthAnchor.constraint(equalTo: topStack.widthAnchor).isActive = true
     }
 
-    let quitItem = NSMenuItem(
-      title: "Quit Maccelerate", action: #selector(NSApplication.terminate(_:)),
-      keyEquivalent: "q")
-    quitItem.target = NSApp
-    menu.addItem(quitItem)
+    let line = SettingsFill(SettingsStyle.divider)
+    line.heightAnchor.constraint(equalToConstant: 1).isActive = true
 
-    return menu
+    let updates = MenuPanelRow("Check for Updates…") { [weak self] in
+      self?.closePanel()
+      UpdaterManager.shared.checkForUpdates(nil)
+    }
+    updates.isEnabled = UpdaterManager.shared.canCheckForUpdates
+    let rows = SettingsDesign.stack([
+      MenuPanelRow("Settings…", shortcut: "⌘,") { [weak self] in self?.openSettings() },
+      updates,
+      MenuPanelRow("About \(Constants.appName)") { [weak self] in
+        self?.closePanel()
+        Self.openAbout()
+      },
+      MenuPanelRow("Quit \(Constants.appName)", shortcut: "⌘Q") { NSApp.terminate(nil) },
+    ], spacing: 0)
+    for view in rows.arrangedSubviews { view.widthAnchor.constraint(equalTo: rows.widthAnchor).isActive = true }
+
+    [topStack, line, rows].forEach { surface.addSubview($0) }
+    NSLayoutConstraint.activate([
+      surface.widthAnchor.constraint(equalToConstant: width),
+      topStack.topAnchor.constraint(equalTo: surface.topAnchor, constant: 16),
+      topStack.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 14),
+      topStack.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -14),
+      line.topAnchor.constraint(equalTo: topStack.bottomAnchor, constant: 12),
+      line.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 14),
+      line.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -14),
+      rows.topAnchor.constraint(equalTo: line.bottomAnchor, constant: 6),
+      rows.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 6),
+      rows.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -6),
+      rows.bottomAnchor.constraint(equalTo: surface.bottomAnchor, constant: -6),
+    ])
+    return surface
   }
 
-  @objc private func switchLeft(_ sender: Any?) {
-    delegate?.menuBarControllerDidRequestSwitchLeft(self)
-  }
-
-  @objc private func switchRight(_ sender: Any?) {
-    delegate?.menuBarControllerDidRequestSwitchRight(self)
-  }
-
-  @objc private func showMissionControl(_ sender: Any?) {
-    delegate?.menuBarController(
-      self, didRequestOverlay: ISSOverlayModeMissionControl, sourceEvent: NSApp.currentEvent)
-  }
-
-  @objc private func showAppExpose(_ sender: Any?) {
-    delegate?.menuBarController(
-      self, didRequestOverlay: ISSOverlayModeAppExpose, sourceEvent: NSApp.currentEvent)
-  }
-
-  @objc private func openPreferences(_ sender: Any?) {
+  private func openSettings() {
+    closePanel()
     delegate?.menuBarControllerDidRequestPreferences(self)
   }
 
-  @objc private func openAbout(_ sender: Any?) {
+  static func openAbout() {
     NSApp.activate(ignoringOtherApps: true)
-
     var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
-
     if let gitHash = Bundle.main.object(forInfoDictionaryKey: "GitCommitHash") as? String {
       options[.version] = "\(gitHash)"
     }
     options[.credits] = NSAttributedString(
       string: "Based on InstantSpaceSwitcher by jurplel (MIT). Original Maccelerate contributions: MIT License. Full licenses and attribution are included in the app bundle.")
-
     NSApp.orderFrontStandardAboutPanel(options: options)
     // Ensure window comes to front if already open
     NSApp.windows.first(where: { $0.title.contains("About") })?.makeKeyAndOrderFront(nil)
   }
 
-  @objc private func switchToSpace(_ sender: NSMenuItem) {
-    let targetIndex = UInt32(sender.tag)
-    delegate?.menuBarController(self, didRequestSwitchToSpaceAtIndex: targetIndex)
-  }
-
   func updateWithSpaceInfo(_ info: ISSSpaceInfo?) {
     cachedSpaceInfo = info
-    menuSummary.update(info)
-    updateMenuState()
+    updateStatusItemAppearance()
   }
 
   func scheduleRefresh(after delay: TimeInterval) {
@@ -178,144 +220,19 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
   }
 
-  private func updateMenuState() {
-    if let info = cachedSpaceInfo {
-      leftMenuItem?.isEnabled = info.currentIndex > 0
-      rightMenuItem?.isEnabled = info.currentIndex + 1 < info.spaceCount
-    } else {
-      leftMenuItem?.isEnabled = true
-      rightMenuItem?.isEnabled = true
-    }
-
-    updateSpacesMenuItems()
-    updateStatusItemAppearance()
-  }
-
-  private func updateSpacesMenuItems() {
-    guard let submenu = spacesMenuItem?.submenu else { return }
-    submenu.removeAllItems()
-
-    guard let info = cachedSpaceInfo, info.spaceCount > 0 else {
-      let item = NSMenuItem(title: "No accessible spaces", action: nil, keyEquivalent: "")
-      item.isEnabled = false
-      submenu.addItem(item)
-      return
-    }
-
-    let count = Int(info.spaceCount)
-    let store = HotkeyStore.shared
-    for index in 0..<count {
-      let title = "Space \(index + 1)"
-      let item = NSMenuItem(title: title, action: #selector(switchToSpace(_:)), keyEquivalent: "")
-      
-      // Sync customized shortcuts
-      if let identifier = identifierForSpace(index + 1) {
-        let comb = store.combination(for: identifier)
-        item.keyEquivalent = comb.keyEquivalent
-        item.keyEquivalentModifierMask = comb.cocoaModifierFlags
-      }
-
-      item.tag = index
-      item.target = self
-      item.state = index == Int(info.currentIndex) ? .on : .off
-      submenu.addItem(item)
-    }
-  }
-
-  private func identifierForSpace(_ number: Int) -> HotkeyIdentifier? {
-    switch number {
-    case 1: return .space1
-    case 2: return .space2
-    case 3: return .space3
-    case 4: return .space4
-    case 5: return .space5
-    case 6: return .space6
-    case 7: return .space7
-    case 8: return .space8
-    case 9: return .space9
-    case 10: return .space10
-    default: return nil
-    }
-  }
-
-  func menuNeedsUpdate(_ menu: NSMenu) {
-    if menu === statusItem.menu || menu === spacesMenuItem?.submenu {
-      scheduleRefresh(after: 0.05)
-    }
-  }
-
-  func menuWillOpen(_ menu: NSMenu) {
-    if menu === statusItem.menu || menu === spacesMenuItem?.submenu {
-      scheduleRefresh(after: 0.05)
-    }
-  }
-
-  func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
-    guard menu === statusItem.menu else { return }
-    if item === missionControlMenuItem {
-      iss_arm_overlay_menu(ISSOverlayModeMissionControl)
-    } else if item === appExposeMenuItem {
-      iss_arm_overlay_menu(ISSOverlayModeAppExpose)
-    } else {
-      iss_disarm_overlay_menu()
-    }
-  }
-
-  func menuDidClose(_ menu: NSMenu) {
-    if menu === statusItem.menu {
-      iss_disarm_overlay_menu()
-    }
-  }
-
   private func updateStatusItemAppearance() {
-    guard let button = statusItem.button else { return }
-
+    guard let button = statusItem?.button else { return }
     button.font = nil
     button.title = ""
     button.imagePosition = .imageOnly
-
-    let icon: NSImage?
-    if let info = cachedSpaceInfo {
-      icon = MenuBarIconRenderer.renderIcon(for: info)
-    } else {
-      icon = nil
-    }
-
-    let finalIcon = icon ?? baseStatusImage
-    finalIcon?.isTemplate = true
-    button.image = finalIcon
-  }
-
-  func applyHotkey(_ combination: HotkeyCombination, to identifier: HotkeyIdentifier) {
-    let menuItem: NSMenuItem?
-    switch identifier {
-    case .left: menuItem = leftMenuItem
-    case .right: menuItem = rightMenuItem
-    case .missionControl: menuItem = missionControlMenuItem
-    case .appExpose: menuItem = appExposeMenuItem
-    default: return
-    }
-    guard let menuItem else { return }
-    if identifier == .missionControl || identifier == .appExpose {
-      // The event tap owns these shortcuts on macOS 27. Registering a second
-      // AppKit key equivalent can toggle the same overlay twice.
-      menuItem.keyEquivalent = ""
-      menuItem.keyEquivalentModifierMask = []
-      menuItem.toolTip = combination.displayString
-      return
-    }
-    menuItem.keyEquivalent = combination.keyEquivalent
-    menuItem.keyEquivalentModifierMask = combination.cocoaModifierFlags
+    let icon = cachedSpaceInfo.flatMap { MenuBarIconRenderer.renderIcon(for: $0) } ?? baseStatusImage
+    icon?.isTemplate = true
+    button.image = icon
   }
 }
 
 @MainActor
 protocol MenuBarControllerDelegate: AnyObject {
-  func menuBarControllerDidRequestSwitchLeft(_ controller: MenuBarController)
-  func menuBarControllerDidRequestSwitchRight(_ controller: MenuBarController)
-  func menuBarController(
-    _ controller: MenuBarController, didRequestOverlay mode: ISSOverlayMode,
-    sourceEvent: NSEvent?)
   func menuBarControllerDidRequestPreferences(_ controller: MenuBarController)
   func menuBarController(
     _ controller: MenuBarController, didRequestSwitchToSpaceAtIndex index: UInt32)

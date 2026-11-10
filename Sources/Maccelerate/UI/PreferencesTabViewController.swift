@@ -6,22 +6,24 @@ final class PreferencesTabViewController: NSViewController {
     GeneralSettingsViewController(), KeyboardShortcutsViewController(),
     AppearanceSettingsViewController(), StatisticsViewController(),
   ]
-  private let navigation = NSSegmentedControl(labels: ["Switching", "Shortcuts", "Appearance", "Statistics"],
-                                             trackingMode: .selectOne, target: nil, action: nil)
+  private let navigation = SettingsSegmented(titles: ["Switching", "Shortcuts", "Appearance", "Statistics"],
+                                             selected: 0, size: .tabs, label: "Settings section")
   private let content = NSView()
   private let permissionSurface = SettingsSurface()
   private let permissionWarningTint = NSColor(name: nil) { appearance in
     let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     return NSColor.systemRed.withAlphaComponent(dark ? 0.16 : 0.08)
   }
-  private let permissionLabel = SettingsDesign.text("", size: 11, color: .secondaryLabelColor)
-  private let permissionButton = NSButton(title: "Open System Settings", target: nil, action: nil)
+  private let permissionLabel = SettingsDesign.text("", size: 11, color: SettingsStyle.secondary)
+  private lazy var permissionButton = SettingsButton("Open System Settings") { [weak self] in
+    self?.openPermissions()
+  }
   private var activationObserver: NSObjectProtocol?
   private var inputObserver: NSObjectProtocol?
 
   override func loadView() {
     let background = SettingsSurface()
-    background.fillColor = SettingsDesign.canvas
+    background.fillColor = SettingsStyle.canvas
     background.radius = 0
     view = background
   }
@@ -30,66 +32,50 @@ final class PreferencesTabViewController: NSViewController {
     super.viewDidLoad()
     let icon = NSImageView(image: NSApp.applicationIconImage)
     icon.translatesAutoresizingMaskIntoConstraints = false
-    icon.widthAnchor.constraint(equalToConstant: 44).isActive = true
-    icon.heightAnchor.constraint(equalToConstant: 44).isActive = true
+    icon.widthAnchor.constraint(equalToConstant: 36).isActive = true
+    icon.heightAnchor.constraint(equalToConstant: 36).isActive = true
     let brand = SettingsDesign.stack([
-      SettingsDesign.text(Constants.appName, size: 19, weight: .semibold),
-      SettingsDesign.text("Your Spaces. At your pace.", size: 12, color: .secondaryLabelColor),
-    ], spacing: 3)
-    let header = SettingsDesign.stack([icon, brand, NSView()], vertical: false, spacing: 12)
-    navigation.target = self
-    navigation.action = #selector(changePage)
-    navigation.segmentStyle = .rounded
-    navigation.controlSize = .large
-    navigation.selectedSegment = 0
-    navigation.setAccessibilityLabel("Settings section")
-    let top = SettingsDesign.stack([header, navigation], spacing: 22)
+      SettingsDesign.text(Constants.appName, size: 15, weight: .semibold, color: SettingsStyle.label),
+      SettingsDesign.text("Your Spaces. At your pace.", size: 12, color: SettingsStyle.secondary),
+    ], spacing: 1)
+    let header = SettingsDesign.stack([icon, brand, NSView()], vertical: false, spacing: 10)
+    navigation.onChange = { [weak self] in self?.showPage($0) }
+    let top = SettingsDesign.stack([header, navigation], spacing: 16)
     view.addSubview(top)
-    header.widthAnchor.constraint(equalTo: top.widthAnchor).isActive = true
-    navigation.widthAnchor.constraint(equalTo: top.widthAnchor).isActive = true
-    navigation.heightAnchor.constraint(equalToConstant: 36).isActive = true
-    navigation.segmentDistribution = .fillEqually
 
     content.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(content)
-    permissionButton.bezelStyle = .inline
-    permissionButton.font = .systemFont(ofSize: 11, weight: .medium)
-    permissionButton.target = self
-    permissionButton.action = #selector(openPermissions)
-    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
-    let versionLabel = SettingsDesign.text("Version \(version)", size: 11, color: .secondaryLabelColor)
-    versionLabel.setContentHuggingPriority(.required, for: .horizontal)
-    versionLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-    let footer = SettingsDesign.stack([permissionLabel, NSView(), permissionButton, versionLabel],
+    let footer = SettingsDesign.stack([permissionLabel, NSView(), permissionButton],
                                       vertical: false, spacing: 12)
     permissionSurface.radius = 0
     permissionSurface.fillColor = .clear
     permissionSurface.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(permissionSurface)
     view.addSubview(footer)
-    let divider = NSBox()
-    divider.boxType = .separator
-    divider.translatesAutoresizingMaskIntoConstraints = false
-    view.addSubview(divider)
+    let line = SettingsFill(SettingsStyle.divider)
+    view.addSubview(line)
     NSLayoutConstraint.activate([
-      top.topAnchor.constraint(equalTo: view.topAnchor, constant: 38),
+      top.topAnchor.constraint(equalTo: view.topAnchor, constant: 36),
       top.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 28),
       top.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -28),
-      content.topAnchor.constraint(equalTo: top.bottomAnchor, constant: 0),
+      header.widthAnchor.constraint(equalTo: top.widthAnchor),
+      navigation.widthAnchor.constraint(equalTo: top.widthAnchor),
+      content.topAnchor.constraint(equalTo: top.bottomAnchor),
       content.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       content.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      content.bottomAnchor.constraint(equalTo: divider.topAnchor),
-      divider.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-      divider.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      divider.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -12),
-      permissionSurface.topAnchor.constraint(equalTo: divider.bottomAnchor),
+      content.bottomAnchor.constraint(equalTo: line.topAnchor),
+      line.heightAnchor.constraint(equalToConstant: 1),
+      line.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      line.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      line.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -8),
+      permissionSurface.topAnchor.constraint(equalTo: line.bottomAnchor),
       permissionSurface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       permissionSurface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       permissionSurface.bottomAnchor.constraint(equalTo: view.bottomAnchor),
       footer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 28),
       footer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -28),
-      footer.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -12),
-      footer.heightAnchor.constraint(equalToConstant: 20),
+      footer.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -8),
+      footer.heightAnchor.constraint(equalToConstant: 28),
     ])
     pages.forEach { addChild($0) }
     showPage(0)
@@ -107,7 +93,12 @@ final class PreferencesTabViewController: NSViewController {
     if let inputObserver { NotificationCenter.default.removeObserver(inputObserver) }
   }
 
-  @objc private func changePage(_ sender: NSSegmentedControl) { showPage(sender.selectedSegment) }
+  /// Opens a page from outside, for example from the preview build.
+  func select(page index: Int) {
+    guard pages.indices.contains(index) else { return }
+    navigation.selected = index
+    showPage(index)
+  }
 
   private func showPage(_ index: Int) {
     guard pages.indices.contains(index) else { return }
@@ -132,11 +123,11 @@ final class PreferencesTabViewController: NSViewController {
     // Draw the warning independently of window activation so it stays visible
     // when macOS dims the controls of an inactive settings window.
     permissionSurface.fillColor = connected ? .clear : permissionWarningTint
-    permissionLabel.textColor = connected ? .secondaryLabelColor : .labelColor
+    permissionLabel.textColor = connected ? SettingsStyle.secondary : SettingsStyle.label
     permissionButton.isHidden = connected
   }
 
-  @objc private func openPermissions() {
+  private func openPermissions() {
     guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else { return }
     NSWorkspace.shared.open(url)
   }

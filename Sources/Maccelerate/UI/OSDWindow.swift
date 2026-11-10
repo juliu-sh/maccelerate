@@ -1,110 +1,124 @@
 import AppKit
 import ISS
 
-/// Shared by the live HUD and the settings preview.
-final class SpaceHUDView: NSView {
-  private let number = SettingsDesign.text("", size: 30, weight: .semibold)
-  init() {
-    super.init(frame: .zero)
-    number.font = .monospacedDigitSystemFont(ofSize: 30, weight: .semibold)
-    let labels = SettingsDesign.stack([
-      SettingsDesign.text("Space", size: 14, weight: .semibold),
-      SettingsDesign.text("Maccelerate", size: 10, color: .secondaryLabelColor),
-    ], spacing: 3)
-    let row = SettingsDesign.stack([SymbolTile(symbol: "rectangle.on.rectangle"), labels, NSView(), number],
-                                   vertical: false, spacing: 12)
-    addSubview(row)
-    NSLayoutConstraint.activate([
-      row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
-      row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
-      row.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-      row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
-    ])
-  }
-  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+/// Stored indicator settings. `showOSD` and `osdDurationMs` keep their names from earlier releases.
+enum IndicatorSettings {
+  static let enabledKey = "showOSD"
+  static let durationKey = "osdDurationMs"
+  static let styleKey = "indicatorStyle"
+  static let shadowKey = "indicatorShadow"
+  static let shadowShapeKey = "indicatorShadowShape"
+  static let positionKey = "indicatorPosition"
+  static let durations = [250, 500, 750]
 
-  override var isOpaque: Bool { false }
-
-  override func draw(_ dirtyRect: NSRect) {
-    let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 22, yRadius: 22)
-    let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-    (dark ? NSColor(white: 0.15, alpha: 0.97) : NSColor(white: 0.97, alpha: 0.97)).setFill()
-    path.fill()
-    (dark ? NSColor.white.withAlphaComponent(0.12) : NSColor.black.withAlphaComponent(0.12)).setStroke()
-    path.lineWidth = 1
-    path.stroke()
+  /// Earlier releases offered 100 to 1000 ms; each maps to the nearest remaining choice.
+  static func duration(fromStored value: Int?) -> Int {
+    guard let value else { return durations[0] }
+    let clamped = min(max(value, durations[0]), durations[durations.count - 1])
+    return durations.min { abs($0 - clamped) < abs($1 - clamped) } ?? durations[0]
   }
 
-  override func viewDidChangeEffectiveAppearance() {
-    super.viewDidChangeEffectiveAppearance()
-    needsDisplay = true
+  /// Someone who already used Maccelerate keeps the indicator they know.
+  static func defaultStyle(existingInstall: Bool) -> IndicatorStyle {
+    existingInstall ? .card : .dots
   }
 
-  func setSpace(_ value: String) {
-    number.stringValue = value
-    setAccessibilityLabel("Space \(value)")
+  /// Writes the new keys once, so later defaults can change without moving anyone.
+  static func migrate(_ defaults: UserDefaults = .standard) {
+    if defaults.object(forKey: styleKey) == nil {
+      let existing = ["showOSD", "osdDurationMs", "gestureSpeed", "SUHasLaunchedBefore"]
+        .contains { defaults.object(forKey: $0) != nil }
+      defaults.set(defaultStyle(existingInstall: existing).rawValue, forKey: styleKey)
+    }
+    let stored = defaults.object(forKey: durationKey) as? Int
+    let duration = duration(fromStored: stored)
+    if stored != duration { defaults.set(duration, forKey: durationKey) }
   }
 }
 
-final class OSDWindow {
-  static let shared = OSDWindow()
+/// The indicator's settings and the window that shows it on screen.
+@MainActor
+final class SpaceIndicator {
+  static let shared = SpaceIndicator()
+  private let defaults = UserDefaults.standard
   private var window: NSWindow?
-  private var hud: SpaceHUDView?
   private var hideTimer: Timer?
   private var presentationID = 0
-  private init() {}
 
-  func show(message: String) {
-    guard UserDefaults.standard.bool(forKey: "showOSD") else { return }
-    let detection = UserDefaults.standard.object(forKey: "overlayDetectionEnabled") as? Bool ?? true
+  var isOn: Bool {
+    get { defaults.bool(forKey: IndicatorSettings.enabledKey) }
+    set { defaults.set(newValue, forKey: IndicatorSettings.enabledKey) }
+  }
+  var style: IndicatorStyle {
+    get { IndicatorStyle(rawValue: defaults.integer(forKey: IndicatorSettings.styleKey)) ?? .card }
+    set { defaults.set(newValue.rawValue, forKey: IndicatorSettings.styleKey) }
+  }
+  var durationMs: Int {
+    get { IndicatorSettings.duration(fromStored: defaults.object(forKey: IndicatorSettings.durationKey) as? Int) }
+    set { defaults.set(newValue, forKey: IndicatorSettings.durationKey) }
+  }
+  var shadow: IndicatorShadow {
+    get { (defaults.object(forKey: IndicatorSettings.shadowKey) as? Int).flatMap(IndicatorShadow.init) ?? .medium }
+    set { defaults.set(newValue.rawValue, forKey: IndicatorSettings.shadowKey) }
+  }
+  var shadowShape: IndicatorShadowShape {
+    get {
+      (defaults.object(forKey: IndicatorSettings.shadowShapeKey) as? Int).flatMap(IndicatorShadowShape.init)
+        ?? .layered
+    }
+    set { defaults.set(newValue.rawValue, forKey: IndicatorSettings.shadowShapeKey) }
+  }
+  var position: IndicatorPosition {
+    get {
+      (defaults.object(forKey: IndicatorSettings.positionKey) as? Int).flatMap(IndicatorPosition.init(index:))
+        ?? .standard
+    }
+    set { defaults.set(newValue.index, forKey: IndicatorSettings.positionKey) }
+  }
+
+  /// The live Space, or a sample when Spaces cannot be read.
+  private var spaceInfo: (space: Int, total: Int) {
+    var info = ISSSpaceInfo()
+    guard iss_get_menubar_space_info(&info), info.spaceCount > 0 else { return (2, 5) }
+    return (Int(info.currentIndex) + 1, Int(info.spaceCount))
+  }
+
+  /// After a Space switch. Hidden while Mission Control covers the screen.
+  func show(space: Int) {
+    guard isOn else { return }
+    let detection = defaults.object(forKey: "overlayDetectionEnabled") as? Bool ?? true
     if detection && iss_is_mission_control_active() { return }
-    present(message: message, duration: nil)
+    present(space: space, total: max(spaceInfo.total, space), seconds: nil)
   }
 
-  func showPreview() {
-    let duration = Double(UserDefaults.standard.object(forKey: "osdDurationMs") as? Int ?? 200) / 1000
-    present(message: "2", duration: duration)
+  /// From Settings: also while the indicator is off, so a choice can be judged before turning it on.
+  func preview(seconds: Double? = nil) {
+    let info = spaceInfo
+    present(space: info.space, total: info.total, seconds: seconds)
   }
 
-  private func present(message: String, duration: TimeInterval?) {
+  private func present(space: Int, total: Int, seconds: Double?) {
     hideTimer?.invalidate()
     presentationID += 1
-    if window == nil { createWindow() }
-    guard let window, let hud else { return }
-    hud.setSpace(message)
+    let hud = SpaceIndicatorView(style: style, space: space, total: total)
+    hud.shadowLevel = shadow
+    hud.shadowShape = shadowShape
+    let window = self.window ?? makeWindow()
+    self.window = window
+    window.setContentSize(hud.intrinsicContentSize)
+    window.contentView = hud
     let mouse = NSEvent.mouseLocation
     if let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main {
-      let frame = screen.visibleFrame
-      window.setFrameOrigin(NSPoint(x: frame.midX - window.frame.width / 2, y: frame.minY + 64))
+      let origin = position.origin(for: style.size(total: total), in: screen.visibleFrame)
+      window.setFrameOrigin(NSPoint(x: origin.x - SpaceIndicatorView.shadowRoom,
+                                    y: origin.y - SpaceIndicatorView.shadowRoom))
     }
-    // Cancel a previous fade before a rapid subsequent switch.
-    window.contentView?.layer?.removeAllAnimations()
-    NSAnimationContext.runAnimationGroup { context in
-      context.duration = 0
-      window.animator().alphaValue = 1
-    }
+    window.alphaValue = 1
     window.orderFrontRegardless()
-    let delay = duration ?? Double(UserDefaults.standard.object(forKey: "osdDurationMs") as? Int ?? 200) / 1000
+    let delay = seconds ?? Double(durationMs) / 1000
     hideTimer = Timer.scheduledTimer(withTimeInterval: max(0.1, delay), repeats: false) { [weak self] _ in
-      self?.hide()
+      Task { @MainActor [weak self] in self?.hide() }
     }
-  }
-
-  private func createWindow() {
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 214, height: 64),
-                          styleMask: [.borderless], backing: .buffered, defer: false)
-    window.isReleasedWhenClosed = false
-    window.isOpaque = false
-    window.backgroundColor = .clear
-    window.level = .statusBar
-    window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
-    window.ignoresMouseEvents = true
-    window.hidesOnDeactivate = false
-    window.hasShadow = false
-    let hud = SpaceHUDView()
-    window.contentView = hud
-    self.hud = hud
-    self.window = window
   }
 
   private func hide() {
@@ -113,8 +127,24 @@ final class OSDWindow {
       context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.15
       window?.animator().alphaValue = 0
     } completionHandler: { [weak self] in
-      guard let self, self.presentationID == id else { return }
-      self.window?.orderOut(nil)
+      Task { @MainActor [weak self] in
+        guard let self, self.presentationID == id else { return }
+        self.window?.orderOut(nil)
+      }
     }
+  }
+
+  private func makeWindow() -> NSWindow {
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless],
+                          backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.isOpaque = false
+    window.backgroundColor = .clear
+    window.hasShadow = false
+    window.level = .statusBar
+    window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+    window.ignoresMouseEvents = true
+    window.hidesOnDeactivate = false
+    return window
   }
 }

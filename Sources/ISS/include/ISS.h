@@ -177,29 +177,6 @@ typedef bool (*ISSShiftClickCallback)(CGPoint location);
 void iss_set_shift_click_callback(ISSShiftClickCallback callback);
 
 /**
- * @brief Arms the next physical menu-item mouse-up to trigger an accelerated
- * overlay gesture through the trusted event-tap proxy.
- */
-void iss_arm_overlay_menu(ISSOverlayMode mode);
-
-/** @brief Cancels a pending menu overlay trigger. */
-void iss_disarm_overlay_menu(void);
-
-/**
- * @brief Returns and clears whether the armed physical menu click already
- * triggered the requested overlay.
- */
-bool iss_take_overlay_menu_triggered(void);
-
-/**
- * @brief Toggles an overlay using a physical AppKit event as provenance.
- * Intended for menu-item actions, where the current mouse-up event is trusted
- * by WindowServer but a freshly created synthetic keyboard event is not.
- * @return true when the trusted event was accepted for posting.
- */
-bool iss_trigger_overlay_from_event(ISSOverlayMode mode, CGEventRef event);
-
-/**
  * @brief Callback invoked after any successful space switch.
  * @param newSpaceIndex Zero-based index of the space that was switched to.
  */
@@ -277,5 +254,11 @@ void iss_set_overlay_detection_enabled(bool enabled);
  * @param speed The velocity value for the gesture
  */
 void iss_set_gesture_speed(double speed);
+
+/**
+ * @brief Whether Mission Control and App Exposé shortcuts are accelerated.
+ * When off, a matching shortcut opens the overlay with macOS's own animation.
+ */
+void iss_set_overlay_acceleration(bool enabled);
 
 #endif /* _ISS_H */

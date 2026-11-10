@@ -5,13 +5,13 @@ A free, MIT-licensed macOS menu bar app that accelerates switching between Space
 ## Features
 
 - Fast native Space switching, without disabling System Integrity Protection.
-- Configurable shortcuts and three speed presets: Fast, Faster, and Instant.
+- Configurable shortcuts, three speed presets (Fast, Faster and Instant) and System, which leaves switching to macOS.
 - Optional trackpad gesture override and Mission Control/App Exposé acceleration.
 - Optional acceleration of Cmd-Tab transitions when the destination is unambiguous.
 - Acceleration of the Space, Mission Control and App Exposé shortcuts set in macOS.
 - Optional Stage Manager animation speed, instant recent apps and experimental Shift-click to add an app to the current stage.
-- Menu bar controls, launch at login, and settings for switching and shortcuts.
-- Appearance settings with an optional Space indicator, duration control and preview.
+- A menu bar panel with your Spaces and the switching speed, launch at login, and settings for switching and shortcuts.
+- An optional Space indicator in four styles, with shadow, position, duration and preview.
 - Local statistics by action and speed, estimated time saved, pause and reset controls.
 - Sparkle updates in official builds, with automatic checks off by default.
 - Included command-line tool: `Maccelerate.app/Contents/MacOS/ISSCli --help`.
@@ -36,7 +36,7 @@ MACCELERATE_CODESIGN_IDENTITY=- ./dist/build.sh
 
 The source app is in `build/Maccelerate Source.app`; its DMG is `build/Maccelerate Source-<version>.dmg`. Official releases retain `Maccelerate.app` and their existing download names. Sparkle is pinned in `Package.resolved`, and licenses are bundled inside the app. The DMG shows the app for its channel and the Applications shortcut.
 
-Version 1.4.0 accelerates the Space, Mission Control and App Exposé shortcuts you set in macOS, keeps your own key combinations as optional additional shortcuts and adds optional Stage Manager settings. Appearance settings, the optional Space indicator and local Statistics are included in Free.
+Version 1.5.0 brings a lighter design for the settings, the Space indicator and the menu bar, and adds the System speed and four indicator styles. Version 1.4.0 added acceleration for the Space, Mission Control and App Exposé shortcuts you set in macOS, optional additional shortcuts and Stage Manager settings. Appearance settings, the optional Space indicator and local Statistics are included in Free.
 
 The horizontal speed presets and trackpad recovery apply on macOS 27 and later, based on the major product version. Minor updates and Apple build numbers do not disable that path. macOS 26 and earlier retain their gesture format; app requests now share destination coordination and confirmation across supported versions. Accelerated vertical swipes also suppress accidental software-generated middle clicks during the gesture and a short release window, including three-finger taps interpreted by apps such as Supercharge. Rapid shortcut and trackpad switching were tested live on macOS 26.6. Live validation across other system versions and display configurations remains limited.
 

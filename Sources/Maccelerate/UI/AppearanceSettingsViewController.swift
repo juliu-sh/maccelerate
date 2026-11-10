@@ -1,80 +1,114 @@
 import AppKit
 
+@MainActor
 final class AppearanceSettingsViewController: NSViewController {
-  private let osdSwitch = NSSwitch()
-  private let durationPopup = NSPopUpButton()
-  private let previewButton = NSButton(title: "Preview", target: nil, action: nil)
-  private let preview = SpaceHUDView()
-  private let durations = [100, 200, 300, 500, 750, 1000]
-  private let defaults = UserDefaults.standard
+  private let indicator = SpaceIndicator.shared
+  private let enabledSwitch = SettingsSwitch(label: "Show the Space indicator")
+  private let options = IndicatorStyle.allCases.map { IndicatorStyleOption(style: $0) }
+  private let position = IndicatorPositionPicker()
+  private lazy var shadow = SettingsSegmented(titles: IndicatorShadow.allCases.map(\.title),
+                                              selected: indicator.shadow.rawValue, size: .compact,
+                                              label: "Indicator shadow")
+  private lazy var shape = SettingsSegmented(titles: IndicatorShadowShape.allCases.map(\.title),
+                                             selected: indicator.shadowShape.rawValue, size: .compact,
+                                             label: "Indicator shadow shape")
+  private lazy var duration = SettingsSegmented(titles: IndicatorSettings.durations.map { "\($0) ms" },
+                                                selected: 0, size: .compact, label: "Display duration")
+  private var gate: SettingsGate?
 
   override func loadView() { view = NSView() }
 
+  private static func column(_ groups: [(title: String, control: NSView)]) -> NSView {
+    let stack = SettingsDesign.stack(spacing: 6)
+    stack.distribution = .fill
+    for group in groups {
+      stack.addArrangedSubview(SettingsDesign.text(group.title, color: SettingsStyle.label))
+      stack.addArrangedSubview(group.control)
+      group.control.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+      stack.setCustomSpacing(12, after: group.control)
+    }
+    return stack
+  }
+
   override func viewDidLoad() {
     super.viewDidLoad()
-    let intro = SettingsDesign.heading("A little sense of place.", subtitle: "A quiet cue when you arrive at another Space.")
-    let canvas = SettingsSurface()
-    canvas.fillColor = SettingsDesign.inset
-    canvas.radius = 18
-    canvas.heightAnchor.constraint(equalToConstant: 138).isActive = true
-    preview.translatesAutoresizingMaskIntoConstraints = false
-    preview.setSpace("2")
-    canvas.addSubview(preview)
-    let sampleLabel = SettingsDesign.text("ON-SCREEN PREVIEW", size: 9, weight: .medium, color: .secondaryLabelColor)
-    sampleLabel.translatesAutoresizingMaskIntoConstraints = false
-    canvas.addSubview(sampleLabel)
-    NSLayoutConstraint.activate([
-      preview.centerXAnchor.constraint(equalTo: canvas.centerXAnchor),
-      preview.centerYAnchor.constraint(equalTo: canvas.centerYAnchor, constant: -8),
-      preview.widthAnchor.constraint(equalToConstant: 196),
-      preview.heightAnchor.constraint(equalToConstant: 64),
-      sampleLabel.centerXAnchor.constraint(equalTo: canvas.centerXAnchor),
-      sampleLabel.bottomAnchor.constraint(equalTo: canvas.bottomAnchor, constant: -18),
-    ])
-    osdSwitch.target = self
-    osdSwitch.action = #selector(osdChanged)
-    osdSwitch.setAccessibilityLabel("Show Space indicator")
-    durationPopup.addItems(withTitles: durations.map { "\($0) ms" })
-    durationPopup.target = self
-    durationPopup.action = #selector(durationChanged)
-    durationPopup.setAccessibilityLabel("Indicator duration")
-    durationPopup.widthAnchor.constraint(equalToConstant: 110).isActive = true
-    let rows = SettingsDesign.card([
-      SettingsDesign.row("Space indicator", detail: "Show the destination number after switching.",
-                         symbol: "rectangle.on.rectangle", control: osdSwitch),
-      SettingsDesign.row("Display duration", detail: "How long the indicator stays on screen.",
-                         symbol: "timer", control: durationPopup),
-    ], padding: 12)
-    previewButton.bezelStyle = .rounded
-    previewButton.controlSize = .large
-    previewButton.target = self
-    previewButton.action = #selector(showPreview)
-    let previewRow = SettingsDesign.row("Try it on your screen", detail: "Preview the indicator without switching Spaces.", control: previewButton, height: 44)
-    let content = SettingsDesign.stack([
-      intro, canvas, SettingsDesign.section("On-screen display", content: rows),
-      previewRow,
-      SettingsDesign.text("Follows your Mac’s appearance and accessibility preferences.", size: 11, color: .secondaryLabelColor),
-    ], spacing: 18)
-    SettingsDesign.page(content, in: view)
+    position.onSelect = { [weak self] in self?.indicator.preview(seconds: 1.5) }
+    for option in options {
+      option.onSelect = { [weak self] style in
+        self?.indicator.style = style
+        self?.loadSettings()
+      }
+    }
+    let grid = SettingsDesign.stack([SettingsStyle.columns(Array(options[0...1])),
+                                     SettingsStyle.columns(Array(options[2...3]))], spacing: 12)
+    for row in grid.arrangedSubviews { row.widthAnchor.constraint(equalTo: grid.widthAnchor).isActive = true }
+
+    shadow.onChange = { [weak self] index in
+      self?.indicator.shadow = IndicatorShadow.allCases[index]
+      self?.shadowChanged()
+    }
+    shape.onChange = { [weak self] index in
+      self?.indicator.shadowShape = IndicatorShadowShape.allCases[index]
+      self?.shadowChanged()
+    }
+    duration.onChange = { [weak self] in self?.indicator.durationMs = IndicatorSettings.durations[$0] }
+    let preview = SettingsStyle.row("Try it on your screen",
+                                    control: SettingsButton("Preview") { [weak self] in self?.indicator.preview() })
+
+    let card = SettingsCard(title: "Space indicator", accessory: enabledSwitch)
+    let body = SettingsDesign.stack(spacing: 0)
+    func add(_ view: NSView, spacingAfter: CGFloat = 0) {
+      body.addArrangedSubview(view)
+      view.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
+      body.setCustomSpacing(spacingAfter, after: view)
+    }
+    add(grid, spacingAfter: 12)
+    add(card.divider(), spacingAfter: 12)
+    let screen = Self.column([("Position", position)])
+    let controls = Self.column([("Shadow", shadow), ("Shadow shape", shape), ("Display duration", duration)])
+    let row = SettingsDesign.stack([screen, controls], vertical: false, spacing: 16)
+    row.alignment = .top
+    row.distribution = .fill
+    add(row)
+    // The screen ends level with the last control, at about 4:3.
+    screen.widthAnchor.constraint(equalTo: row.widthAnchor, multiplier: 0.44).isActive = true
+    screen.heightAnchor.constraint(equalTo: controls.heightAnchor).isActive = true
+
+    let gate = SettingsGate(body)
+    self.gate = gate
+    enabledSwitch.onChange = { [weak self] isOn in
+      self?.indicator.isOn = isOn
+      self?.gate?.isOpen = isOn
+    }
+    card.add(gate, spacingAfter: 14)
+    // Outside the gate: a style can be tried before the indicator is turned on.
+    card.add(card.divider())
+    card.add(preview)
+    let note = SettingsDesign.text("Follows your Mac’s appearance and accessibility preferences.",
+                                   size: 11, color: SettingsStyle.secondary)
+    SettingsDesign.page(SettingsDesign.stack([card, note], spacing: 12), in: view)
     loadSettings()
   }
 
   override func viewWillAppear() { super.viewWillAppear(); loadSettings() }
 
-  private func loadSettings() {
-    let enabled = defaults.bool(forKey: "showOSD")
-    osdSwitch.state = enabled ? .on : .off
-    durationPopup.selectItem(at: durations.firstIndex(of: defaults.object(forKey: "osdDurationMs") as? Int ?? 200) ?? 1)
-    durationPopup.isEnabled = enabled
+  private func shadowChanged() {
+    loadSettings()
+    // Longer than a real switch: a shadow can only be judged on the actual wallpaper.
+    indicator.preview(seconds: 1.5)
   }
 
-  @objc private func osdChanged(_ sender: NSSwitch) {
-    defaults.set(sender.state == .on, forKey: "showOSD")
-    loadSettings()
+  private func loadSettings() {
+    enabledSwitch.isOn = indicator.isOn
+    gate?.isOpen = indicator.isOn
+    for option in options {
+      option.isSelected = option.style == indicator.style
+      option.setShadow(indicator.shadow, shape: indicator.shadowShape)
+    }
+    shadow.selected = indicator.shadow.rawValue
+    shape.selected = indicator.shadowShape.rawValue
+    shape.isEnabled = indicator.shadow != .none
+    duration.selected = IndicatorSettings.durations.firstIndex(of: indicator.durationMs) ?? 0
+    position.needsDisplay = true
   }
-  @objc private func durationChanged(_ sender: NSPopUpButton) {
-    guard durations.indices.contains(sender.indexOfSelectedItem) else { return }
-    defaults.set(durations[sender.indexOfSelectedItem], forKey: "osdDurationMs")
-  }
-  @objc private func showPreview() { OSDWindow.shared.showPreview() }
 }

@@ -11,6 +11,11 @@ final class SettingsPreview: NSObject, NSApplicationDelegate {
     if CommandLine.arguments.contains("--dark") || appearance == "dark" { NSApp.appearance = NSAppearance(named: .darkAqua) }
     controller = PreferencesWindowController()
     controller?.present()
+    let arguments = CommandLine.arguments
+    if let index = arguments.firstIndex(of: "--page"), arguments.indices.contains(index + 1),
+       let page = Int(arguments[index + 1]) {
+      (controller?.window?.contentViewController as? PreferencesTabViewController)?.select(page: page)
+    }
   }
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }

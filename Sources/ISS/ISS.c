@@ -102,8 +102,6 @@ static ISSOverlayHotkey systemOverlayHotkeys[2] = {0};
 static int activeOverlayHotkey = -1;
 static CGKeyCode activeOverlayKeyCode = 0;
 static bool activeOverlayHotkeyWasAccelerated = false;
-static int pendingMenuOverlay = -1;
-static bool menuOverlayWasTriggered = false;
 
 static ISSOverlayHotkey systemShortcuts[ISSSystemShortcutCount] = {0};
 static ISSSystemShortcutCallback systemShortcutCallback = NULL;
@@ -123,6 +121,8 @@ static const CGEventFlags kNativeOverlayFlags =
 
 // Gesture speed state
 static double gestureSpeed = 1000.0;
+// Off under the System speed: overlay shortcuts then open with macOS's own animation.
+static bool overlayAccelerationEnabled = true;
 static bool statisticsEnabled = false;
 static bool statisticsReduceMotion = false;
 static bool statisticsDirty = false;
@@ -358,7 +358,7 @@ static double overlay_progress_for_mode(ISSOverlayMode mode) {
 static bool post_accelerated_overlay(CGEventTapProxy proxy,
                                      CGEventRef provenance,
                                      ISSOverlayMode mode) {
-    if (!valid_overlay_mode(mode) || !provenance ||
+    if (!valid_overlay_mode(mode) || !provenance || !overlayAccelerationEnabled ||
         vertical_gesture_multiplier() <= 1.0) {
         return false;
     }
@@ -719,22 +719,6 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
     if (overlay_hotkeys_enabled() &&
         (type == kCGEventKeyDown || type == kCGEventKeyUp)) {
         return translate_physical_overlay_hotkey(proxy, type, event);
-    }
-
-    if (type == kCGEventLeftMouseUp && pendingMenuOverlay >= 0) {
-        const pid_t source_pid = (pid_t)CGEventGetIntegerValueField(
-            event, kCGEventSourceUnixProcessID);
-        if (source_pid == 0) {
-            const ISSOverlayMode mode = (ISSOverlayMode)pendingMenuOverlay;
-            menuOverlayWasTriggered = post_accelerated_overlay(
-                proxy, event, mode);
-            if (menuOverlayWasTriggered) {
-                statistics_record(mode == ISSOverlayModeMissionControl
-                    ? ISSStatisticMissionControl : ISSStatisticAppExpose);
-            }
-        }
-        pendingMenuOverlay = -1;
-        return event;
     }
 
     if (!swipeOverrideEnabled) return event;
@@ -1425,8 +1409,6 @@ void iss_destroy(void) {
     lastCmdTabRelease = 0;
     activeOverlayHotkey = -1;
     activeOverlayHotkeyWasAccelerated = false;
-    pendingMenuOverlay = -1;
-    menuOverlayWasTriggered = false;
     activeSystemShortcutKey = -1;
     shiftClickActive = false;
     if (predictionsDict) {
@@ -1819,58 +1801,12 @@ void iss_set_shift_click_callback(ISSShiftClickCallback callback) {
     if (!callback) shiftClickActive = false;
 }
 
-void iss_arm_overlay_menu(ISSOverlayMode mode) {
-    pendingMenuOverlay = valid_overlay_mode(mode) ? mode : -1;
-    menuOverlayWasTriggered = false;
-}
-
-void iss_disarm_overlay_menu(void) {
-    pendingMenuOverlay = -1;
-}
-
-bool iss_take_overlay_menu_triggered(void) {
-    const bool triggered = menuOverlayWasTriggered;
-    menuOverlayWasTriggered = false;
-    return triggered;
-}
-
-bool iss_trigger_overlay_from_event(ISSOverlayMode mode, CGEventRef event) {
-    if (!valid_overlay_mode(mode) || !event || !iss_has_event_access()
-        || inputRequiresRestart) return false;
-    const pid_t sourcePid = (pid_t)CGEventGetIntegerValueField(
-        event, kCGEventSourceUnixProcessID);
-    if (sourcePid != 0) return false;
-
-    CGEventRef keyDown = CGEventCreateCopy(event);
-    CGEventRef keyUp = CGEventCreateCopy(event);
-    if (!keyDown || !keyUp) {
-        if (keyDown) CFRelease(keyDown);
-        if (keyUp) CFRelease(keyUp);
-        return false;
-    }
-
-    const CGKeyCode keyCode = native_overlay_keycode(mode);
-    CGEventSetType(keyDown, kCGEventKeyDown);
-    CGEventSetIntegerValueField(keyDown, kCGKeyboardEventKeycode, keyCode);
-    CGEventSetIntegerValueField(keyDown, kCGKeyboardEventAutorepeat, 0);
-    CGEventSetFlags(keyDown, kNativeOverlayFlags);
-    CGEventSetTimestamp(keyDown, mach_absolute_time());
-
-    CGEventSetType(keyUp, kCGEventKeyUp);
-    CGEventSetIntegerValueField(keyUp, kCGKeyboardEventKeycode, keyCode);
-    CGEventSetIntegerValueField(keyUp, kCGKeyboardEventAutorepeat, 0);
-    CGEventSetFlags(keyUp, kNativeOverlayFlags);
-    CGEventSetTimestamp(keyUp, mach_absolute_time() + 1);
-
-    CGEventPost(kCGSessionEventTap, keyDown);
-    CGEventPost(kCGSessionEventTap, keyUp);
-    CFRelease(keyDown);
-    CFRelease(keyUp);
-    return true;
-}
-
 void iss_set_gesture_speed(double speed) {
     gestureSpeed = speed;
+}
+
+void iss_set_overlay_acceleration(bool enabled) {
+    overlayAccelerationEnabled = enabled;
 }
 
 void iss_reset_predictions(void) {

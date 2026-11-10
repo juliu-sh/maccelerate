@@ -1,26 +1,20 @@
-# Maccelerate 1.4.0, Free release, build 34
+# Maccelerate 1.5.0, Free release, build 35
 
-Maccelerate now accelerates the keyboard shortcuts you already use in macOS
-and adds optional Stage Manager settings.
+Maccelerate has a new, lighter design for its settings, its Space indicator
+and its menu bar, and a System speed that leaves switching to macOS.
 
 ## New
 
-- **macOS shortcuts:** Move left/right a space, Switch to Desktop 1–10, Mission Control and Application windows use Maccelerate's switching speed when they are enabled in System Settings. Maccelerate reads these settings and does not change them. Shortcuts that are turned off in macOS are left alone. You can turn this off in **Shortcuts**.
-- **Additional shortcuts:** Your own key combinations are now a separate, optional list with a single switch. New default combinations for Mission Control and App Exposé are Control-Option-Command-Up/Down Arrow, so they no longer overlap macOS's own shortcuts. Shortcuts you already set are kept.
-- **Stage Manager animation speed:** Choose Fast, Faster or Instant, or keep the System setting. The change applies immediately.
-- **Show recent apps instantly:** Removes the wait at the screen edge before Stage Manager's recent apps appear. Stage Manager applies this after a restart, which Maccelerate can do for you; your windows stay open.
-- **Shift-click in the Dock adds to stage (experimental, off by default):** Adds an open app to the current stage instead of switching to its own stage. This works for apps shown in Stage Manager's recent apps; other clicks behave as usual.
-
-The Stage Manager options use hidden macOS settings. They stay in macOS after
-Maccelerate quits until you choose System or turn the option off.
+- **New settings design:** Light cards, clearer switches and one compact control for each choice. The settings window is narrower and keeps every option from before. Custom controls work with Full Keyboard Access and VoiceOver.
+- **System speed:** Next to Fast, Faster and Instant, System leaves Space switches, ⌘ Tab, trackpad swipes and macOS's shortcuts to macOS. Your previous speed is kept and returns when you choose it again. Your own additional shortcuts keep working; Space shortcuts move at Fast, as macOS has no animation of its own for them.
+- **Space indicator styles:** Choose Card, Number, Dots or Tiles, a shadow and its shape, and one of 15 places on the screen. Dots and Tiles grow with the number of Spaces. With Increase Contrast, the indicator gets a thin edge. Display durations are now 250, 500 and 750 ms; earlier choices move to the nearest one. New installations start with Dots; existing installations keep the Card.
+- **Menu bar panel:** The menu bar item opens a panel with your Spaces, the switching speed, Settings, Check for Updates, About and Quit. It does not bring Maccelerate to the front, so your windows and stages stay as they are. Switch Left/Right, Mission Control and App Exposé are no longer in the menu; their shortcuts stay.
 
 ## Compatibility
 
-The new shortcut handling and the Stage Manager options were tested live on
-macOS 26.6. Automated tests cover the shortcut reading and translation. Live
-coverage across other macOS versions, keyboard layouts and display arrangements
-remains limited. Stage Manager options rely on undocumented behavior that a
-macOS update can change or ignore.
+The new design, the System speed and the menu bar panel were tested on
+macOS 26.6 with Apple Silicon. Live coverage of Intel Macs, other macOS
+versions and display arrangements remains limited.
 
 ## Installation
 

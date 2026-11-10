@@ -89,7 +89,6 @@ int main(void) {
     reset(); assert(iss_init()); enabled = false;
     assert(!iss_init() && inputRequiresRestart && enables == 1);
     reset(); trusted = false;
-    assert(!iss_trigger_overlay_from_event(ISSOverlayModeMissionControl, NULL));
     assert(!iss_post_dock_swipe(kCGSGesturePhaseBegan, ISSDirectionRight, 100));
     assert(posts == 0);
     // A revoked permission between a vertical gesture and a synthesized
