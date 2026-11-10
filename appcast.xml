@@ -2,6 +2,16 @@
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
   <channel>
     <item>
+      <title>Maccelerate 1.5.0</title>
+      <pubDate>Tue, 10 Nov 2026 14:39:40 +0000</pubDate>
+      <sparkle:version>35</sparkle:version>
+      <sparkle:shortVersionString>1.5.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <description>Maccelerate 1.5.0. See the release notes for changes.</description>
+      <link>https://github.com/juliu-sh/maccelerate/releases/tag/v1.5.0</link>
+      <enclosure url="https://github.com/juliu-sh/maccelerate/releases/download/v1.5.0/Maccelerate-1.5.0.dmg" type="application/octet-stream" length="4375713" sparkle:edSignature="n8wMCYIgpfihkP5fitCXysILRJmKYO6DtE29JioMYEhDZqq+EoXRBb+6zvdefRDfoslNxO501W8syOySQnVeAA==" />
+    </item>
+    <item>
       <title>Maccelerate 1.4.0</title>
       <pubDate>Mon, 02 Nov 2026 14:22:17 +0000</pubDate>
       <sparkle:version>34</sparkle:version>
